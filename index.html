@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Digital Detective Guide</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>The Digital Detective Guide</h1>
+                <div class="portable-mode-indicator">
+                    <i class="fas fa-usb"></i>
+                    <span>Portable Mode</span>
+                </div>
+            </div>
+            
+            <div class="category-nav">
+                <div class="category-list"></div>
+                <button class="add-category-btn">
+                    <i class="fas fa-plus"></i>
+                    Add Category
+                </button>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="export-btn">
+                    <i class="fas fa-file-export"></i>
+                    Export
+                </button>
+                <button class="import-btn">
+                    <i class="fas fa-file-import"></i>
+                    Import
+                </button>
+                <button class="help-btn">
+                    <i class="fas fa-question-circle"></i>
+                    Help
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="content-header">
+                <div class="search-container">
+                    <input type="text" id="search" placeholder="Search entries...">
+                    <button class="search-btn">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+                <button class="add-entry-btn">
+                    <i class="fas fa-plus"></i>
+                    Add Entry
+                </button>
+            </div>
+
+            <div class="entries-container"></div>
+        </div>
+    </div>
+
+    <!-- Entry Modal -->
+    <div id="entry-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add/Edit Entry</h2>
+                <button type="button" class="close-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="entry-form" autocomplete="off">
+                <div class="form-group">
+                    <label for="title">Title</label>
+                    <input type="text" id="title" name="title" required>
+                </div>
+                <div class="form-group">
+                    <label for="category">Category</label>
+                    <select id="category" name="category" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="wisdom">Detective Wisdom</label>
+                    <textarea id="wisdom" name="wisdom"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="tags">Tags (comma-separated)</label>
+                    <input type="text" id="tags" name="tags">
+                </div>
+                <div class="form-group">
+                    <label for="file">Attach File</label>
+                    <input type="file" id="file" name="file">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="cancel-btn">Cancel</button>
+                    <button type="submit" class="save-btn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Help Guide</h2>
+                <button class="close-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="help-content">
+                <h3>Getting Started</h3>
+                <p>Welcome to The Digital Detective Guide! This app helps you store and share investigative knowledge.</p>
+                
+                <h3>Features</h3>
+                <ul>
+                    <li><strong>Categories:</strong> Organize entries by type</li>
+                    <li><strong>Entries:</strong> Add, edit, and delete entries with files</li>
+                    <li><strong>Search:</strong> Find entries across all content</li>
+                    <li><strong>Export/Import:</strong> Share knowledge with other detectives</li>
+                    <li><strong>Ratings:</strong> Rate entries to highlight valuable content</li>
+                </ul>
+
+                <h3>Exporting Changes</h3>
+                <ol>
+                    <li>Click the Export button</li>
+                    <li>Save the ZIP file</li>
+                    <li>Share with other detectives</li>
+                </ol>
+
+                <h3>Importing Changes</h3>
+                <ol>
+                    <li>Click the Import button</li>
+                    <li>Select the ZIP file</li>
+                    <li>Review and confirm the changes</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html> 

@@ -1,0 +1,770 @@
+// DOM Elements
+const categoryList = document.querySelector('.category-list');
+const entriesContainer = document.querySelector('.entries-container');
+const searchInput = document.getElementById('search');
+const entryModal = document.getElementById('entry-modal');
+const entryForm = document.getElementById('entry-form');
+const addEntryBtn = document.querySelector('.add-entry-btn');
+const closeModalBtn = document.querySelector('.close-modal');
+const cancelBtn = document.querySelector('.cancel-btn');
+const portableIndicator = document.querySelector('.portable-mode-indicator span');
+
+// State
+let currentCategory = null;
+let entries = [];
+let config = null;
+let currentEntryId = null;
+let currentFilePath = null;
+
+// Initialize the app
+async function initApp() {
+    try {
+        console.log('Starting app initialization...');
+        
+        // Load config
+        console.log('Loading config...');
+        config = await window.api.getConfig();
+        updateDeviceInfo();
+        console.log('Config loaded:', config);
+
+        // Load categories
+        console.log('Loading categories...');
+        const categories = await window.api.getCategories();
+        console.log('Categories loaded:', categories);
+        
+        if (!Array.isArray(categories)) {
+            throw new Error('Invalid categories data received');
+        }
+        
+        // Set up event listeners first
+        setupEventListeners();
+        
+        // Initialize modal
+        initializeModal();
+        
+        // Render categories
+        renderCategories(categories);
+
+        // Load entries for the first category if available
+        if (categories && categories.length > 0) {
+            console.log('Loading initial category:', categories[0]);
+            currentCategory = categories[0].id;
+            await loadEntries(currentCategory);
+            
+            // Update active state of first category
+            const firstCategoryItem = document.querySelector('.category-item');
+            if (firstCategoryItem) {
+                firstCategoryItem.classList.add('active');
+            }
+        } else {
+            console.log('No categories available');
+            entriesContainer.innerHTML = `
+                <div class="no-categories">
+                    <p>No categories available. Please add a category first.</p>
+                    <button class="add-category-btn">
+                        <i class="fas fa-plus"></i>
+                        Add Category
+                    </button>
+                </div>
+            `;
+            
+            // Add click handler for the add category button
+            const addCategoryBtn = entriesContainer.querySelector('.add-category-btn');
+            if (addCategoryBtn) {
+                addCategoryBtn.addEventListener('click', handleAddCategory);
+            }
+        }
+
+        console.log('App initialization complete');
+    } catch (error) {
+        console.error('Error initializing app:', error);
+        entriesContainer.innerHTML = `
+            <div class="error-message">
+                <p>Error initializing the application.</p>
+                <button onclick="window.location.reload()">Refresh Page</button>
+                <details>
+                    <summary>Error Details (for debugging)</summary>
+                    <pre>${error.message}</pre>
+                </details>
+            </div>
+        `;
+    }
+}
+
+// Initialize modal and its event listeners
+function initializeModal() {
+    // Ensure modal starts hidden
+    entryModal.style.display = 'none';
+    
+    // Set up modal close handlers
+    const closeModal = () => {
+        entryModal.style.display = 'none';
+        entryForm.reset();
+    };
+    
+    // Add event listeners for modal controls
+    closeModalBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    
+    // Close modal when clicking outside
+    entryModal.addEventListener('click', (e) => {
+        if (e.target === entryModal) {
+            closeModal();
+        }
+    });
+    
+    // Prevent modal close when clicking modal content
+    entryModal.querySelector('.modal-content').addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+}
+
+// Update device info in UI
+function updateDeviceInfo() {
+    const deviceId = config.deviceId.slice(0, 8); // Show only first 8 characters
+    portableIndicator.textContent = `Portable Mode (Device: ${deviceId})`;
+}
+
+// Check if merge notification should be shown
+function checkMergeNotifications() {
+    if (!config.settings.mergeNotifications) return;
+
+    const lastMerged = config.lastMerged ? new Date(config.lastMerged) : null;
+    if (!lastMerged || daysSince(lastMerged) >= config.settings.mergeNotificationDays) {
+        showMergeNotification();
+    }
+}
+
+// Calculate days since a date
+function daysSince(date) {
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+}
+
+// Show merge notification
+function showMergeNotification() {
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.innerHTML = `
+        <i class="fas fa-sync-alt"></i>
+        <span>It's been a while since your last merge. Consider exporting your changes to share with the team.</span>
+        <button class="close-notification"><i class="fas fa-times"></i></button>
+    `;
+    document.body.appendChild(notification);
+
+    // Handle close button
+    notification.querySelector('.close-notification').addEventListener('click', () => {
+        notification.remove();
+    });
+}
+
+// Set up event listeners
+function setupEventListeners() {
+    // Search functionality
+    searchInput.addEventListener('input', debounce(handleSearch, 300));
+
+    // Add Entry button
+    addEntryBtn.addEventListener('click', () => showModal());
+
+    // Form submission
+    entryForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const title = document.getElementById('title').value.trim();
+        const categoryId = document.getElementById('category').value;
+        if (!title || !categoryId) {
+            showNotification('Please fill in all required fields', 'error');
+            return;
+        }
+        
+        try {
+            const fileInput = document.getElementById('file');
+            let filePath = currentFilePath;
+            
+            // Handle file upload if a new file is selected
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                
+                // Create file data object with name and path
+                const fileData = {
+                    name: file.name,
+                    path: file.path || file.name // fallback to name if path is not available
+                };
+                
+                // Save the file and get the new path
+                const result = await window.api.saveFile(fileData);
+                filePath = result.filePath;
+            }
+            
+            const entry = {
+                id: currentEntryId,
+                title: title,
+                description: document.getElementById('description').value,
+                wisdom: document.getElementById('wisdom').value,
+                categoryId: categoryId,
+                file_path: filePath,
+                tags: document.getElementById('tags').value
+            };
+            
+            if (currentEntryId) {
+                await window.api.updateEntry(entry);
+            } else {
+                await window.api.addEntry(entry);
+            }
+            
+            // Close the modal first
+            entryModal.style.display = 'none';
+            
+            // Reload entries for the current category
+            if (currentCategory) {
+                entries = await window.api.getEntries(currentCategory);
+                renderEntries(entries);
+            } else {
+                // If no category is selected, set it to the one we just used
+                currentCategory = categoryId;
+                entries = await window.api.getEntries(categoryId);
+                renderEntries(entries);
+                
+                // Update active state in category list
+                document.querySelectorAll('.category-item').forEach(item => {
+                    item.classList.remove('active');
+                    if (item.dataset.id === categoryId) {
+                        item.classList.add('active');
+                    }
+                });
+            }
+            
+            showNotification('Entry saved successfully', 'success');
+        } catch (error) {
+            console.error('Error saving entry:', error);
+            showNotification(`Error saving entry: ${error.message}`, 'error');
+        }
+    });
+
+    // Add category button
+    document.querySelector('.add-category-btn').addEventListener('click', handleAddCategory);
+
+    // Export/Import buttons
+    document.querySelector('.export-btn').addEventListener('click', handleExport);
+    document.querySelector('.import-btn').addEventListener('click', handleImport);
+}
+
+// Render categories in the sidebar
+function renderCategories(categories) {
+    categoryList.innerHTML = categories.map(category => `
+        <div class="category-item ${category.id === currentCategory ? 'active' : ''}" data-id="${category.id}">
+            <h3>${category.name}</h3>
+            <span class="entry-count">${category.entryCount || 0} entries</span>
+        </div>
+    `).join('');
+
+    // Add click event to categories
+    document.querySelectorAll('.category-item').forEach(item => {
+        item.addEventListener('click', () => {
+            currentCategory = item.dataset.id;
+            loadEntries(currentCategory);
+            // Update active state
+            document.querySelectorAll('.category-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+        });
+    });
+}
+
+// Load entries for a category
+async function loadEntries(categoryId) {
+    try {
+        console.log('Loading entries for category:', categoryId);
+        if (!categoryId) {
+            console.error('No category ID provided to loadEntries');
+            entriesContainer.innerHTML = '<p>Error: No category selected. Please select a category.</p>';
+            return;
+        }
+        
+        // Show loading state
+        entriesContainer.innerHTML = '<div class="loading">Loading entries...</div>';
+        
+        // Add debug logging
+        console.log('Calling window.api.getEntries with categoryId:', categoryId);
+        entries = await window.api.getEntries(categoryId);
+        console.log('Entries loaded:', entries);
+        
+        if (!Array.isArray(entries)) {
+            console.error('Received invalid entries data:', entries);
+            throw new Error('Invalid entries data received');
+        }
+        
+        renderEntries(entries);
+    } catch (error) {
+        console.error('Error loading entries:', error);
+        entriesContainer.innerHTML = `
+            <div class="error-message">
+                <p>Error loading entries. Please try refreshing the page.</p>
+                <button onclick="window.location.reload()">Refresh Page</button>
+                <details>
+                    <summary>Error Details (for debugging)</summary>
+                    <pre>${error.message}</pre>
+                </details>
+            </div>
+        `;
+    }
+}
+
+// Helper function to render star ratings
+function renderStars(rating, entryId) {
+    const roundedRating = Math.round(rating || 0);
+    let stars = '<div class="rating-stars" data-entry-id="' + entryId + '">';
+    for (let i = 1; i <= 5; i++) {
+        stars += `<span class="star ${i <= roundedRating ? 'active' : ''}" data-rating="${i}">★</span>`;
+    }
+    stars += '</div>';
+    return stars;
+}
+
+// Handle star rating click
+async function handleStarClick(star) {
+    const entryId = star.parentElement.dataset.entryId;
+    const rating = parseInt(star.dataset.rating);
+    
+    try {
+        await window.api.addRating({
+            entry_id: entryId,
+            value: rating
+        });
+        
+        // Update the stars visually
+        const stars = star.parentElement.querySelectorAll('.star');
+        stars.forEach((s, index) => {
+            s.classList.toggle('active', index < rating);
+        });
+        
+        showNotification('Rating saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving rating:', error);
+        showNotification('Error saving rating', 'error');
+    }
+}
+
+// Render entries in the main content area
+function renderEntries(entriesToRender = entries) {
+    console.log('Rendering entries:', entriesToRender);
+    const container = document.querySelector('.entries-container');
+    
+    if (!entriesToRender || entriesToRender.length === 0) {
+        container.innerHTML = '<p>No entries found in this category. Click "Add Entry" to create one.</p>';
+        return;
+    }
+    
+    // Clear the container
+    container.innerHTML = '';
+    
+    // Create and append each entry element
+    entriesToRender.forEach(entry => {
+        const entryElement = document.createElement('div');
+        entryElement.className = 'entry';
+        entryElement.dataset.entryId = entry.id;
+        
+        // Create the entry content
+        const entryContent = document.createElement('div');
+        entryContent.className = `entry-content ${entry.file_path ? 'has-file' : ''}`;
+        entryContent.dataset.filePath = entry.file_path || '';
+        
+        // Add the entry content HTML
+        entryContent.innerHTML = `
+            <div class="entry-header">
+                <div class="entry-title">
+                    <h4>Title</h4>
+                    <h3>${entry.title}</h3>
+                </div>
+                <div class="entry-metadata">
+                    <span class="metadata-item">
+                        <i class="fas fa-user"></i>
+                        Added by ${entry.device_id || 'Unknown'} on ${new Date(entry.created_at).toLocaleDateString()}
+                    </span>
+                    <span class="metadata-item">
+                        <i class="fas fa-clock"></i>
+                        Last updated: ${new Date(entry.updated_at).toLocaleDateString()}
+                    </span>
+                    <span class="metadata-item">
+                        <i class="fas fa-eye"></i>
+                        Views: ${entry.view_count || 0}
+                    </span>
+                </div>
+            </div>
+            ${entry.description ? `
+                <div class="entry-section">
+                    <h4>Description</h4>
+                    <p class="description">${entry.description}</p>
+                </div>
+            ` : ''}
+            ${entry.wisdom ? `
+                <div class="entry-section">
+                    <h4>Detective Wisdom</h4>
+                    <p class="wisdom">${entry.wisdom}</p>
+                </div>
+            ` : ''}
+            ${entry.file_path ? `
+                <div class="entry-section">
+                    <h4>Attached File</h4>
+                    <div class="file-attachment">
+                        <span>📎 ${entry.file_path.split('/').pop()}</span>
+                    </div>
+                </div>
+            ` : ''}
+            <div class="entry-meta">
+                <div class="rating-section">
+                    <h4>Rating</h4>
+                    ${renderStars(entry.rating, entry.id)}
+                    <span class="rating-count">(${entry.rating_count || 0} ratings)</span>
+                </div>
+                ${entry.tags ? `
+                    <div class="tags-section">
+                        <h4>Tags</h4>
+                        <div class="tags">
+                            ${entry.tags.split(',').map(tag => `<span class="tag">${tag.trim()}</span>`).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+        
+        // Create action buttons container
+        const actionsContainer = document.createElement('div');
+        actionsContainer.className = 'entry-actions';
+        
+        // Create edit button
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-btn';
+        editBtn.textContent = '✏️';
+        editBtn.dataset.entryId = entry.id;
+        
+        // Create delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.dataset.entryId = entry.id;
+        
+        // Add buttons to actions container
+        actionsContainer.appendChild(editBtn);
+        actionsContainer.appendChild(deleteBtn);
+        
+        // Add the main sections to the entry element
+        entryElement.appendChild(entryContent);
+        entryElement.appendChild(actionsContainer);
+        
+        // Add file click handler
+        if (entry.file_path) {
+            entryContent.addEventListener('click', (e) => {
+                if (!e.target.closest('button') && !e.target.closest('.rating-stars')) {
+                    window.api.openFile(entry.file_path);
+                }
+            });
+        }
+        
+        // Add rating stars click handler
+        const ratingStars = entryContent.querySelector('.rating-stars');
+        if (ratingStars) {
+            ratingStars.querySelectorAll('.star').forEach(star => {
+                star.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleStarClick(star);
+                });
+                
+                // Add hover effect
+                star.addEventListener('mouseenter', () => {
+                    const rating = parseInt(star.dataset.rating);
+                    const stars = star.parentElement.querySelectorAll('.star');
+                    stars.forEach((s, index) => {
+                        s.classList.toggle('hover', index < rating);
+                    });
+                });
+                
+                star.addEventListener('mouseleave', () => {
+                    const stars = star.parentElement.querySelectorAll('.star');
+                    stars.forEach(s => s.classList.remove('hover'));
+                });
+            });
+        }
+        
+        // Add edit button handler
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showModal(entry);
+        });
+        
+        // Add delete button handler
+        deleteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm('Are you sure you want to delete this entry?')) {
+                try {
+                    await window.api.deleteEntry(entry.id);
+                    // Reload entries after deletion
+                    entries = await window.api.getEntries(currentCategory);
+                    renderEntries(entries);
+                    showNotification('Entry deleted successfully', 'success');
+                } catch (error) {
+                    console.error('Error deleting entry:', error);
+                    showNotification('Failed to delete entry', 'error');
+                }
+            }
+        });
+        
+        // Add the complete entry to the container
+        container.appendChild(entryElement);
+    });
+}
+
+// Handle search
+async function handleSearch(event) {
+    const query = event.target.value.toLowerCase();
+    const filteredEntries = entries.filter(entry => 
+        entry.title.toLowerCase().includes(query) ||
+        entry.description.toLowerCase().includes(query) ||
+        entry.wisdom.toLowerCase().includes(query) ||
+        (entry.tags && entry.tags.some(tag => tag.toLowerCase().includes(query)))
+    );
+    renderEntries(filteredEntries);
+}
+
+// Populate category dropdown
+async function populateCategoryDropdown() {
+    try {
+        const categorySelect = document.getElementById('category');
+        const categories = await window.api.getCategories();
+        
+        // Clear existing options
+        categorySelect.innerHTML = '';
+        
+        // Add a placeholder option
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '-- Select a Category --';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        categorySelect.appendChild(placeholder);
+        
+        // Sort categories by name
+        const sortedCategories = categories.sort((a, b) => a.name.localeCompare(b.name));
+        
+        // Add unique categories to dropdown
+        const addedNames = new Set();
+        sortedCategories.forEach(category => {
+            if (!addedNames.has(category.name)) {
+                const option = document.createElement('option');
+                option.value = category.id;
+                option.textContent = category.name;
+                categorySelect.appendChild(option);
+                addedNames.add(category.name);
+            }
+        });
+        
+        // Set the current category as selected if available
+        if (currentCategory) {
+            categorySelect.value = currentCategory;
+        }
+    } catch (error) {
+        console.error('Error populating category dropdown:', error);
+    }
+}
+
+// Show modal for adding/editing entries
+function showModal(entry = null) {
+    console.log('Opening modal with entry:', entry); // Debug log
+    
+    // Reset form and clear any existing data
+    entryForm.reset();
+    
+    // Update modal title
+    const modalTitle = entryModal.querySelector('h2');
+    modalTitle.textContent = entry ? 'Edit Entry' : 'Add New Entry';
+    
+    // Remove any existing file info
+    const existingFileInfo = entryModal.querySelector('.current-file-info');
+    if (existingFileInfo) {
+        existingFileInfo.remove();
+    }
+
+    // Initialize form fields
+    const formFields = entryForm.querySelectorAll('input, textarea, select');
+    formFields.forEach(field => {
+        field.disabled = false;
+        field.readOnly = false;
+        field.style.pointerEvents = 'auto';
+        field.style.userSelect = 'auto';
+        field.style.opacity = '1';
+        field.style.backgroundColor = 'white';
+        field.style.cursor = field.type === 'file' || field.tagName === 'SELECT' ? 'pointer' : 'text';
+        field.style.position = 'relative';
+        field.style.zIndex = '1';
+    });
+    
+    // Show modal
+    entryModal.style.display = 'block';
+    
+    // Populate category dropdown and then set form values
+    populateCategoryDropdown().then(() => {
+        if (entry) {
+            // If editing an existing entry
+            currentEntryId = entry.id;
+            document.getElementById('title').value = entry.title || '';
+            document.getElementById('description').value = entry.description || '';
+            document.getElementById('wisdom').value = entry.wisdom || '';
+            document.getElementById('tags').value = entry.tags || '';
+            
+            // Set the category - this should match the ID from the database
+            const categorySelect = document.getElementById('category');
+            if (entry.category_id) {
+                console.log('Setting category to:', entry.category_id); // Debug log
+                categorySelect.value = entry.category_id;
+            } else if (entry.categoryId) {
+                console.log('Setting category to:', entry.categoryId); // Debug log
+                categorySelect.value = entry.categoryId;
+            }
+            
+            // Handle file attachment
+            if (entry.file_path) {
+                currentFilePath = entry.file_path;
+                const fileInfo = document.createElement('div');
+                fileInfo.className = 'current-file-info';
+                fileInfo.innerHTML = `
+                    <p>Current file: ${entry.file_path.split('/').pop()}</p>
+                    <button type="button" class="remove-file-btn">Remove File</button>
+                `;
+                entryForm.insertBefore(fileInfo, entryForm.querySelector('.form-actions'));
+                
+                // Add event listener for remove file button
+                const removeFileBtn = fileInfo.querySelector('.remove-file-btn');
+                removeFileBtn.addEventListener('click', () => {
+                    currentFilePath = '';
+                    fileInfo.remove();
+                });
+            }
+        } else {
+            // If adding a new entry
+            currentEntryId = null;
+            currentFilePath = null;
+            
+            // Set the current category if one is selected
+            if (currentCategory) {
+                const categorySelect = document.getElementById('category');
+                categorySelect.value = currentCategory;
+            }
+        }
+        
+        // Focus on title field
+        document.getElementById('title').focus();
+    });
+}
+
+// Handle add category
+async function handleAddCategory() {
+    const name = prompt('Enter category name:');
+    if (name) {
+        try {
+            await window.api.addCategory(name);
+            const categories = await window.api.getCategories();
+            renderCategories(categories);
+        } catch (error) {
+            console.error('Error adding category:', error);
+        }
+    }
+}
+
+// Handle export
+async function handleExport() {
+    try {
+        await window.api.exportData({
+            format: 'zip',
+            includeFiles: true
+        });
+        
+        // Update last merged date
+        config.lastMerged = new Date().toISOString();
+        await window.api.updateConfig(config);
+        
+        alert('Export completed successfully!');
+    } catch (error) {
+        console.error('Error exporting data:', error);
+    }
+}
+
+// Handle import
+async function handleImport() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip';
+    
+    input.onchange = async (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            try {
+                await window.api.importData(file);
+                
+                // Update last merged date
+                config.lastMerged = new Date().toISOString();
+                await window.api.updateConfig(config);
+                
+                alert('Import completed successfully!');
+                // Refresh the view
+                const categories = await window.api.getCategories();
+                renderCategories(categories);
+                if (currentCategory) {
+                    loadEntries(currentCategory);
+                }
+            } catch (error) {
+                console.error('Error importing data:', error);
+            }
+        }
+    };
+    
+    input.click();
+}
+
+// Utility function for debouncing
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Add getCategoryName function
+async function getCategoryName(categoryId) {
+    try {
+        const categories = await window.api.getCategories();
+        const category = categories.find(cat => cat.id === categoryId);
+        return category ? category.name : 'Unknown Category';
+    } catch (error) {
+        console.error('Error getting category name:', error);
+        return 'Unknown Category';
+    }
+}
+
+// Add showNotification function if it doesn't exist
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <i class="fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i>
+        <span>${message}</span>
+        <button class="close-notification"><i class="fas fa-times"></i></button>
+    `;
+    document.body.appendChild(notification);
+
+    // Add close button handler
+    const closeBtn = notification.querySelector('.close-notification');
+    closeBtn.addEventListener('click', () => notification.remove());
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
+
+// Initialize the app when the DOM is loaded
+document.addEventListener('DOMContentLoaded', initApp); 

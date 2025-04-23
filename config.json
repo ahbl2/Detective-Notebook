@@ -1,0 +1,12 @@
+{
+  "deviceId": "ca8c3bd1-732b-4cdd-abbc-40be471c2a8e",
+  "lastMerged": null,
+  "settings": {
+    "autoBackup": true,
+    "backupInterval": 7,
+    "mergeNotifications": true,
+    "mergeNotificationDays": 7,
+    "theme": "light",
+    "smartMerge": false
+  }
+}
