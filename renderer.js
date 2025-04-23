@@ -17,6 +17,10 @@ let currentEntryId = null;
 let currentFilePath = null;
 let currentFiles = [];
 let pendingFiles = [];
+let categories = [];
+
+// Category Settings Modal Management
+let selectedCategoryId = null;
 
 // Initialize the app
 async function initApp() {
@@ -31,7 +35,7 @@ async function initApp() {
 
         // Load categories
         console.log('Loading categories...');
-        const categories = await window.api.getCategories();
+        categories = await window.api.getCategories();
         console.log('Categories loaded:', categories);
         
         if (!Array.isArray(categories)) {
@@ -189,70 +193,7 @@ function setupEventListeners() {
     addEntryBtn.addEventListener('click', () => showModal());
 
     // Form submission
-    entryForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const title = document.getElementById('title').value.trim();
-        const categoryId = document.getElementById('category').value;
-        if (!title || !categoryId) {
-            showNotification('Please fill in all required fields', 'error');
-            return;
-        }
-        
-        try {
-            // Combine current and pending files
-            const files = [...currentFiles, ...pendingFiles];
-            
-            const entry = {
-                id: currentEntryId,
-                title: title,
-                description: document.getElementById('description').value,
-                wisdom: document.getElementById('wisdom').value,
-                categoryId: categoryId,
-                files: files,
-                tags: document.getElementById('tags').value
-            };
-            
-            if (currentEntryId) {
-                await window.api.updateEntry(entry);
-            } else {
-                await window.api.addEntry(entry);
-            }
-            
-            // Close the modal first
-            entryModal.style.display = 'none';
-            
-            // Reload entries for the current category
-            if (currentCategory) {
-                entries = await window.api.getEntries(currentCategory);
-                renderEntries(entries);
-            } else {
-                // If no category is selected, set it to the one we just used
-                currentCategory = categoryId;
-                entries = await window.api.getEntries(categoryId);
-                renderEntries(entries);
-                
-                // Update active state in category list
-                document.querySelectorAll('.category-item').forEach(item => {
-                    item.classList.remove('active');
-                    if (item.dataset.id === categoryId) {
-                        item.classList.add('active');
-                    }
-                });
-            }
-            
-            // Refresh categories to update counts
-            await refreshCategories();
-            
-            showNotification('Entry saved successfully', 'success');
-        } catch (error) {
-            console.error('Error saving entry:', error);
-            showNotification(`Error saving entry: ${error.message}`, 'error');
-        }
-    });
-
-    // Add category button
-    document.querySelector('.add-category-btn').addEventListener('click', handleAddCategory);
+    entryForm.addEventListener('submit', handleEntrySubmit);
 
     // Export/Import buttons
     document.querySelector('.export-btn').addEventListener('click', handleExport);
@@ -261,21 +202,37 @@ function setupEventListeners() {
 
 // Render categories in the sidebar
 function renderCategories(categories) {
-    categoryList.innerHTML = categories.map(category => `
-        <div class="category-item ${category.id === currentCategory ? 'active' : ''}" data-id="${category.id}">
-            <h3>${category.name}</h3>
-            <span class="entry-count">${category.entryCount || 0} entries</span>
+    categoryList.innerHTML = `
+        <div class="category-item ${!currentCategory ? 'active' : ''}" data-id="dashboard">
+            <h3><i class="fas fa-home"></i> Dashboard</h3>
+            <span class="entry-count">Home</span>
         </div>
-    `).join('');
+        ${categories.map(category => `
+            <div class="category-item ${category.id === currentCategory ? 'active' : ''}" 
+                 data-id="${category.id}"
+                 style="--category-color: ${category.color || '#3498db'}">
+                <h3><i class="fas fa-${category.icon || 'folder'}"></i> ${category.name}</h3>
+                <span class="entry-count">${category.entryCount || 0} entries</span>
+            </div>
+        `).join('')}
+    `;
 
     // Add click event to categories
     document.querySelectorAll('.category-item').forEach(item => {
-        item.addEventListener('click', () => {
-            currentCategory = item.dataset.id;
-            loadEntries(currentCategory);
+        item.addEventListener('click', async () => {
+            const categoryId = item.dataset.id;
+            
             // Update active state
             document.querySelectorAll('.category-item').forEach(i => i.classList.remove('active'));
             item.classList.add('active');
+
+            if (categoryId === 'dashboard') {
+                currentCategory = null;
+                await renderDashboard();
+            } else {
+                currentCategory = categoryId;
+                await loadEntries(currentCategory);
+            }
         });
     });
 }
@@ -391,6 +348,9 @@ function renderEntries(entriesToRender = entries) {
         
         // Create the entry content
         entryElement.innerHTML = `
+            <button class="favorite-btn ${entry.is_favorite ? 'active' : ''}" title="Toggle favorite">
+                <i class="fas fa-star"></i>
+            </button>
             <div class="entry-header">
                 <div class="entry-title">
                     <h4>${entry.category_name || 'Entry'}</h4>
@@ -592,6 +552,25 @@ function renderEntries(entriesToRender = entries) {
             });
         }
         
+        // Add favorite button handler
+        const favoriteBtn = entryElement.querySelector('.favorite-btn');
+        if (favoriteBtn) {
+            favoriteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                    const result = await window.api.toggleFavorite(entry.id);
+                    favoriteBtn.classList.toggle('active', result.isFavorite);
+                    showNotification(
+                        result.isFavorite ? 'Added to favorites' : 'Removed from favorites',
+                        'success'
+                    );
+                } catch (error) {
+                    console.error('Error toggling favorite:', error);
+                    showNotification('Error updating favorites', 'error');
+                }
+            });
+        }
+        
         // Add the complete entry to the container
         container.appendChild(entryElement);
     });
@@ -600,13 +579,32 @@ function renderEntries(entriesToRender = entries) {
 // Handle search
 async function handleSearch(event) {
     const query = event.target.value.toLowerCase();
-    const filteredEntries = entries.filter(entry => 
-        entry.title.toLowerCase().includes(query) ||
-        entry.description.toLowerCase().includes(query) ||
-        entry.wisdom.toLowerCase().includes(query) ||
-        (entry.tags && entry.tags.some(tag => tag.toLowerCase().includes(query)))
-    );
-    renderEntries(filteredEntries);
+    
+    if (!currentCategory) {
+        // If on dashboard, search across all categories
+        try {
+            const data = await window.api.getDashboardData();
+            const allEntries = [...new Set([...data.favorites, ...data.recentEntries])];
+            const filteredEntries = allEntries.filter(entry => 
+                entry.title.toLowerCase().includes(query) ||
+                entry.description?.toLowerCase().includes(query) ||
+                entry.wisdom?.toLowerCase().includes(query) ||
+                entry.tags?.toLowerCase().includes(query)
+            );
+            renderDashboard(filteredEntries);
+        } catch (error) {
+            console.error('Error searching dashboard:', error);
+        }
+    } else {
+        // If in a category, filter current entries
+        const filteredEntries = entries.filter(entry => 
+            entry.title.toLowerCase().includes(query) ||
+            entry.description?.toLowerCase().includes(query) ||
+            entry.wisdom?.toLowerCase().includes(query) ||
+            entry.tags?.toLowerCase().includes(query)
+        );
+        renderEntries(filteredEntries);
+    }
 }
 
 // Populate category dropdown
@@ -730,7 +728,7 @@ document.getElementById('file').addEventListener('change', async (e) => {
     for (const file of files) {
         try {
             // Save the file and get the new path
-            const result = await window.api.saveFile({
+            const result = await window.api.save_file({
                 name: file.name,
                 path: file.path || file.name
             });
@@ -797,20 +795,6 @@ function updateFileDisplay() {
     // Insert new file info before form actions
     const formActions = entryModal.querySelector('.form-actions');
     entryModal.querySelector('form').insertBefore(fileInfo, formActions);
-}
-
-// Handle add category
-async function handleAddCategory() {
-    const name = prompt('Enter category name:');
-    if (name) {
-        try {
-            await window.api.addCategory(name);
-            const categories = await window.api.getCategories();
-            renderCategories(categories);
-        } catch (error) {
-            console.error('Error adding category:', error);
-        }
-    }
 }
 
 // Handle export
@@ -912,12 +896,825 @@ function showNotification(message, type = 'info') {
 // Add a function to refresh categories
 async function refreshCategories() {
     try {
-        const categories = await window.api.getCategories();
+        const updatedCategories = await window.api.getCategories();
+        categories = updatedCategories;
         renderCategories(categories);
     } catch (error) {
         console.error('Error refreshing categories:', error);
+        showNotification('Error refreshing categories', 'error');
     }
 }
 
+// Add dashboard rendering function
+async function renderDashboard() {
+    try {
+        const data = await window.api.getDashboardData();
+        const container = document.querySelector('.entries-container');
+        
+        container.innerHTML = `
+            <div class="dashboard">
+                <div class="dashboard-section">
+                    <h2><i class="fas fa-star"></i> Favorites</h2>
+                    <div class="favorites-grid">
+                        ${data.favorites.length > 0 ? 
+                            data.favorites.map(entry => {
+                                const createdDate = new Date(entry.created_at);
+                                const lastEditDate = new Date(entry.last_edit_at || entry.updated_at);
+                                const timeSinceEdit = timeSince(lastEditDate);
+
+                                return `
+                                    <div class="entry" data-entry-id="${entry.id}">
+                                        <button class="favorite-btn active" title="Remove from favorites">
+                                            <i class="fas fa-star"></i>
+                                        </button>
+                                        <div class="entry-header">
+                                            <div class="entry-title">
+                                                <h4>${entry.category_name || 'Entry'}</h4>
+                                                <h3>${entry.title}</h3>
+                                            </div>
+                                            <div class="entry-metadata">
+                                                <span class="metadata-item" title="Created on ${createdDate.toLocaleDateString()}">
+                                                    <i class="fas fa-calendar-plus"></i>
+                                                    ${createdDate.toLocaleDateString()}
+                                                </span>
+                                                <span class="metadata-item" title="Last edited ${lastEditDate.toLocaleString()}">
+                                                    <i class="fas fa-clock"></i>
+                                                    ${timeSinceEdit}
+                                                </span>
+                                                <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
+                                                    <i class="fas fa-eye"></i>
+                                                    ${entry.view_count || 0}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="entry-content">
+                                            ${entry.description ? `
+                                                <div class="entry-section">
+                                                    <h4><i class="fas fa-align-left"></i> Description</h4>
+                                                    <p>${entry.description}</p>
+                                                </div>
+                                            ` : ''}
+                                            ${entry.wisdom ? `
+                                                <div class="entry-section">
+                                                    <h4><i class="fas fa-lightbulb"></i> Wisdom</h4>
+                                                    <p>${entry.wisdom}</p>
+                                                </div>
+                                            ` : ''}
+                                            ${(entry.files && entry.files.length > 0) || entry.file_path ? `
+                                                <div class="entry-section">
+                                                    <h4><i class="fas fa-paperclip"></i> Files</h4>
+                                                    <div class="files-list">
+                                                        ${entry.files ? entry.files.map(file => `
+                                                            <div class="file-attachment" title="Click to open file">
+                                                                <i class="fas fa-file"></i>
+                                                                <span class="file-name">${file.name || file.path.split('/').pop()}</span>
+                                                                <div class="file-actions">
+                                                                    <button class="download-btn" title="Download file">
+                                                                        <i class="fas fa-download"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        `).join('') : `
+                                                            <div class="file-attachment" title="Click to open file">
+                                                                <i class="fas fa-file"></i>
+                                                                <span class="file-name">${entry.file_path.split('/').pop()}</span>
+                                                                <div class="file-actions">
+                                                                    <button class="download-btn" title="Download file">
+                                                                        <i class="fas fa-download"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        `}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                        <div class="entry-footer">
+                                            <div class="rating-section">
+                                                ${renderStars(entry.id, 0)}
+                                            </div>
+                                            ${entry.tags ? `
+                                                <div class="tags">
+                                                    ${entry.tags.split(',').map(tag => `<span class="tag" title="Filter by tag">${tag.trim()}</span>`).join('')}
+                                                </div>
+                                            ` : ''}
+                                            <div class="entry-actions">
+                                                <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
+                                                    <i class="fas fa-edit"></i>
+                                                    Edit
+                                                </button>
+                                                <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
+                                                    <i class="fas fa-trash"></i>
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('') :
+                            '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>'
+                        }
+                    </div>
+                </div>
+
+                <div class="dashboard-lists">
+                    <div class="dashboard-section">
+                        <h2><i class="fas fa-clock"></i> Recent Updates</h2>
+                        <div class="feed-list">
+                            ${data.recentEntries.slice(0, 10).map(entry => `
+                                <a href="#" class="feed-item" data-entry-id="${entry.id}" data-category-id="${entry.category_id || entry.categoryId}">
+                                    <div class="feed-item-icon">
+                                        <i class="fas fa-edit"></i>
+                                    </div>
+                                    <div class="feed-item-content">
+                                        <div class="feed-item-title">${entry.title}</div>
+                                        <div class="feed-item-meta">
+                                            <span class="feed-item-category">${entry.category_name}</span>
+                                            <span class="feed-item-time">
+                                                <i class="fas fa-clock"></i>
+                                                ${timeSince(new Date(entry.last_edit_at || entry.updated_at))}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </a>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-section">
+                        <h2><i class="fas fa-plus-circle"></i> Recently Added</h2>
+                        <div class="feed-list">
+                            ${data.recentEntries.slice(0, 10)
+                                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                                .map(entry => `
+                                    <a href="#" class="feed-item" data-entry-id="${entry.id}" data-category-id="${entry.category_id || entry.categoryId}">
+                                        <div class="feed-item-icon">
+                                            <i class="fas fa-plus"></i>
+                                        </div>
+                                        <div class="feed-item-content">
+                                            <div class="feed-item-title">${entry.title}</div>
+                                            <div class="feed-item-meta">
+                                                <span class="feed-item-category">${entry.category_name}</span>
+                                                <span class="feed-item-time">
+                                                    <i class="fas fa-calendar"></i>
+                                                    ${timeSince(new Date(entry.created_at))}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </a>
+                                `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add click handlers for feed items
+        container.querySelectorAll('.feed-item').forEach(item => {
+            item.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const categoryId = item.dataset.categoryId;
+                const entryId = item.dataset.entryId;
+                
+                // Update active category in sidebar
+                document.querySelectorAll('.category-item').forEach(cat => {
+                    cat.classList.remove('active');
+                    if (cat.dataset.id === categoryId) {
+                        cat.classList.add('active');
+                    }
+                });
+                
+                // Set current category and load entries
+                currentCategory = categoryId;
+                await loadEntries(categoryId);
+                
+                // Find and scroll to the entry
+                setTimeout(() => {
+                    const targetEntry = document.querySelector(`.entry[data-entry-id="${entryId}"]`);
+                    if (targetEntry) {
+                        targetEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targetEntry.style.animation = 'highlight 2s';
+                    }
+                }, 100);
+            });
+        });
+
+        // Add handlers for favorite entries
+        container.querySelectorAll('.entry').forEach(entry => {
+            // Add click handler for favorite button
+            const favoriteBtn = entry.querySelector('.favorite-btn');
+            if (favoriteBtn) {
+                favoriteBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const entryId = entry.dataset.entryId;
+                    try {
+                        const result = await window.api.toggleFavorite(entryId);
+                        if (!result.isFavorite) {
+                            // Remove the entry from favorites with animation
+                            entry.style.animation = 'fadeOut 0.3s';
+                            setTimeout(() => {
+                                entry.remove();
+                                // If no more favorites, show the no entries message
+                                const favoritesGrid = document.querySelector('.favorites-grid');
+                                if (favoritesGrid && !favoritesGrid.querySelector('.entry')) {
+                                    favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+                                }
+                            }, 300);
+                        }
+                    } catch (error) {
+                        console.error('Error toggling favorite:', error);
+                        showNotification('Error updating favorites', 'error');
+                    }
+                });
+            }
+
+            // Add click handler for edit button
+            const editBtn = entry.querySelector('.edit-btn');
+            if (editBtn) {
+                editBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const entryId = editBtn.dataset.entryId;
+                    const entryData = data.favorites.find(e => e.id === entryId);
+                    if (entryData) {
+                        showModal(entryData);
+                    }
+                });
+            }
+
+            // Add click handler for delete button
+            const deleteBtn = entry.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
+                        const entryId = deleteBtn.dataset.entryId;
+                        try {
+                            await window.api.deleteEntry(entryId);
+                            entry.style.animation = 'fadeOut 0.3s';
+                            setTimeout(() => {
+                                entry.remove();
+                                // If no more favorites, show the no entries message
+                                const favoritesGrid = document.querySelector('.favorites-grid');
+                                if (favoritesGrid && !favoritesGrid.querySelector('.entry')) {
+                                    favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+                                }
+                            }, 300);
+                            showNotification('Entry deleted successfully', 'success');
+                        } catch (error) {
+                            console.error('Error deleting entry:', error);
+                            showNotification('Failed to delete entry', 'error');
+                        }
+                    }
+                });
+            }
+
+            // Add handlers for file attachments
+            entry.querySelectorAll('.file-attachment').forEach((fileAttachment, index) => {
+                const entryData = data.favorites.find(e => e.id === entry.dataset.entryId);
+                const file = entryData.files ? entryData.files[index] : { path: entryData.file_path };
+                
+                // Open file on click
+                fileAttachment.addEventListener('click', async (e) => {
+                    if (!e.target.closest('.download-btn')) {
+                        try {
+                            await window.api.openFile(file.path);
+                            // Increment view count when file is opened
+                            await window.api.incrementViewCount(entryData.id);
+                            // Update the view count display
+                            const viewCountElement = entry.querySelector('.metadata-item[title^="Viewed"]');
+                            if (viewCountElement) {
+                                const currentCount = parseInt(viewCountElement.textContent) || 0;
+                                viewCountElement.textContent = currentCount + 1;
+                                viewCountElement.title = `Viewed ${currentCount + 1} times`;
+                            }
+                        } catch (error) {
+                            console.error('Error opening file:', error);
+                            showNotification('Failed to open file', 'error');
+                        }
+                    }
+                });
+
+                // Download file on download button click
+                const downloadBtn = fileAttachment.querySelector('.download-btn');
+                if (downloadBtn) {
+                    downloadBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await window.api.downloadFile(file.path);
+                            showNotification('File download started', 'success');
+                        } catch (error) {
+                            console.error('Error downloading file:', error);
+                            showNotification('Failed to download file', 'error');
+                        }
+                    });
+                }
+            });
+
+            // Add handlers for rating stars
+            const ratingSection = entry.querySelector('.rating-section');
+            if (ratingSection) {
+                window.api.getUserRating(entry.dataset.entryId).then(userRating => {
+                    ratingSection.innerHTML = renderStars(entry.dataset.entryId, userRating);
+                    
+                    // Add click handlers to the stars
+                    const stars = ratingSection.querySelectorAll('.star');
+                    stars.forEach(star => {
+                        star.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            const rating = parseInt(star.dataset.rating);
+                            try {
+                                await window.api.addRating({
+                                    entry_id: entry.dataset.entryId,
+                                    value: rating
+                                });
+                                
+                                // Update the stars visually
+                                stars.forEach((s, index) => {
+                                    s.classList.toggle('active', index < rating);
+                                });
+                                
+                                showNotification('Rating saved successfully', 'success');
+                            } catch (error) {
+                                console.error('Error saving rating:', error);
+                                showNotification('Error saving rating', 'error');
+                            }
+                        });
+                    });
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Error rendering dashboard:', error);
+        showNotification('Error loading dashboard', 'error');
+    }
+}
+
+// Add fadeOut animation
+const fadeOutStyle = document.createElement('style');
+fadeOutStyle.textContent = `
+    @keyframes fadeOut {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0; transform: scale(0.95); }
+    }
+`;
+document.head.appendChild(fadeOutStyle);
+
+// Add highlight animation to CSS
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes highlight {
+        0% { background-color: rgba(52, 152, 219, 0.2); }
+        100% { background-color: white; }
+    }
+`;
+document.head.appendChild(style);
+
 // Initialize the app when the DOM is loaded
-document.addEventListener('DOMContentLoaded', initApp); 
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        // Load config
+        config = await window.api.getConfig();
+        updateDeviceInfo();
+        
+        // Set up event listeners
+        setupEventListeners();
+        
+        // Initialize modal
+        initializeModal();
+        
+        // Load categories for sidebar
+        const categories = await window.api.getCategories();
+        renderCategories(categories);
+        
+        // Start with dashboard view
+        await renderDashboard();
+        
+    } catch (error) {
+        console.error('Error initializing app:', error);
+        showNotification('Error initializing application', 'error');
+    }
+});
+
+function showCategoryModal(categoryToEdit = null) {
+    const modal = document.getElementById('categoryModal');
+    const form = document.getElementById('categoryForm');
+    const title = modal.querySelector('.modal-title');
+    
+    // Clear previous form
+    form.innerHTML = `
+        <div class="form-group">
+            <label for="categoryName">Category Name:</label>
+            <input type="text" id="categoryName" name="categoryName" class="form-control" required>
+        </div>
+        <div class="form-group">
+            <label for="categoryColor">Color:</label>
+            <input type="color" id="categoryColor" name="color" class="form-control" value="#3498db">
+        </div>
+        <div class="form-group">
+            <label for="categoryIcon">Icon:</label>
+            <select id="categoryIcon" name="icon" class="form-control">
+                <option value="folder">Folder</option>
+                <option value="star">Star</option>
+                <option value="heart">Heart</option>
+                <option value="bookmark">Bookmark</option>
+                <option value="file">File</option>
+                <option value="tag">Tag</option>
+                <option value="flag">Flag</option>
+            </select>
+        </div>
+        <input type="hidden" id="categoryId" name="categoryId">
+        <div class="button-group">
+            <button type="submit" class="btn btn-primary">Save Category</button>
+            <button type="button" class="btn btn-secondary" onclick="hideCategoryModal()">Cancel</button>
+            ${categoryToEdit ? '<button type="button" class="btn btn-danger" onclick="deleteCategory()">Delete</button>' : ''}
+        </div>
+    `;
+
+    // If editing existing category, populate form
+    if (categoryToEdit) {
+        title.textContent = 'Edit Category';
+        form.categoryName.value = categoryToEdit.name;
+        form.categoryId.value = categoryToEdit.id;
+        form.color.value = categoryToEdit.color || '#3498db';
+        form.icon.value = categoryToEdit.icon || 'folder';
+    } else {
+        title.textContent = 'New Category';
+    }
+
+    modal.style.display = 'block';
+}
+
+async function handleCategorySubmit(e) {
+    e.preventDefault();
+    
+    const name = document.getElementById('categoryName').value.trim();
+    const id = document.getElementById('categoryId').value;
+    const iconElement = document.querySelector('.icon-option.selected');
+    const colorElement = document.querySelector('.color-option.selected');
+    
+    if (!name) {
+        showNotification('Please enter a category name', 'error');
+        return;
+    }
+
+    try {
+        const categoryData = {
+            name,
+            icon: iconElement ? iconElement.dataset.icon : 'folder',
+            color: colorElement ? colorElement.dataset.color : '#3498db'
+        };
+
+        if (id) {
+            // Update existing category
+            await window.api.updateCategory({
+                id,
+                ...categoryData
+            });
+        } else {
+            // Add new category
+            await window.api.addCategory(categoryData);
+        }
+        
+        await refreshCategories();
+        hideCategoryModal();
+        showNotification(`Category ${id ? 'updated' : 'created'} successfully`, 'success');
+    } catch (error) {
+        console.error('Error saving category:', error);
+        showNotification('Error saving category', 'error');
+    }
+}
+
+async function deleteCategory() {
+    const form = document.getElementById('categoryForm');
+    const categoryId = form.categoryId.value;
+    
+    if (!categoryId) return;
+
+    if (!confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
+        return;
+    }
+
+    try {
+        // Check if category has entries
+        const entries = await window.api.getEntries();
+        const hasEntries = entries.some(entry => entry.categoryId === categoryId);
+        
+        if (hasEntries) {
+            const moveEntries = confirm('This category contains entries. Would you like to move them to the default category?');
+            if (moveEntries) {
+                // Move entries to default category
+                const updatedEntries = entries.map(entry => 
+                    entry.categoryId === categoryId 
+                        ? { ...entry, categoryId: null }
+                        : entry
+                );
+                await window.api.saveEntries(updatedEntries);
+            } else {
+                // Delete entries in this category
+                const filteredEntries = entries.filter(entry => entry.categoryId !== categoryId);
+                await window.api.saveEntries(filteredEntries);
+            }
+        }
+
+        // Remove category
+        categories = categories.filter(cat => cat.id !== categoryId);
+        await window.api.saveCategories(categories);
+        await refreshCategories();
+        hideCategoryModal();
+        showNotification('Category deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting category:', error);
+        showNotification('Failed to delete category. Please try again.', 'error');
+    }
+}
+
+async function hideCategoryModal() {
+    const modal = document.getElementById('categoryModal');
+    modal.style.display = 'none';
+}
+
+async function loadCategories() {
+    try {
+        categories = await window.electronAPI.loadCategories();
+        updateCategorySelects();
+    } catch (error) {
+        console.error('Error loading categories:', error);
+        categories = [];
+    }
+}
+
+function updateCategorySelects() {
+    const categorySelects = document.querySelectorAll('.category-select');
+    categorySelects.forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Select Category</option>';
+        categories.forEach(category => {
+            const option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = category.name;
+            select.appendChild(option);
+        });
+        if (currentValue) {
+            select.value = currentValue;
+        }
+    });
+}
+
+// Event Listeners
+document.getElementById('categoryForm').addEventListener('submit', handleCategorySubmit);
+document.querySelector('#categoryModal .close').addEventListener('click', hideCategoryModal);
+
+// Initialize categories on load
+loadCategories();
+
+// Listen for the show-category-settings event from the main process
+window.api.receive('show-category-settings', () => {
+    showCategorySettingsModal();
+});
+
+function showCategorySettingsModal() {
+    const modal = document.getElementById('category-settings-modal');
+    modal.style.display = 'block';
+    loadCategoriesList();
+    resetCategoryForm();
+}
+
+async function loadCategoriesList() {
+    try {
+        // Get fresh categories from the database
+        categories = await window.api.getCategories();
+        
+        const categoriesList = document.querySelector('#category-settings-modal .categories-list');
+        categoriesList.innerHTML = `
+            <div class="add-category-button">
+                <i class="fas fa-plus"></i>
+                Add New Category
+            </div>
+        `;
+
+        // Add click handler for the add category button
+        const addButton = categoriesList.querySelector('.add-category-button');
+        addButton.addEventListener('click', () => {
+            startNewCategory();
+        });
+
+        if (categories && categories.length > 0) {
+            categories.forEach(category => {
+                const item = document.createElement('div');
+                item.className = 'category-list-item';
+                item.dataset.id = category.id;
+                item.innerHTML = `
+                    <i class="fas fa-${category.icon || 'folder'}" style="color: ${category.color || '#3498db'}"></i>
+                    <span>${category.name}</span>
+                `;
+                
+                item.addEventListener('click', () => selectCategory(category));
+                categoriesList.appendChild(item);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading categories list:', error);
+        showNotification('Error loading categories', 'error');
+    }
+}
+
+function selectCategory(category) {
+    selectedCategoryId = category.id;
+    
+    // Update selected state in list
+    document.querySelectorAll('.category-list-item').forEach(item => {
+        item.classList.toggle('selected', item.dataset.id === category.id);
+    });
+    
+    // Populate form with the correct ID
+    document.getElementById('category-name').value = category.name;
+    document.getElementById('categoryId').value = category.id;
+    
+    // Update icon selection
+    document.querySelectorAll('.icon-option').forEach(option => {
+        option.classList.toggle('selected', option.dataset.icon === (category.icon || 'folder'));
+    });
+    
+    // Update color selection
+    document.querySelectorAll('.color-option').forEach(option => {
+        option.classList.toggle('selected', option.dataset.color === (category.color || '#3498db'));
+    });
+    
+    // Show delete button
+    document.getElementById('deleteCategoryBtn').style.display = 'block';
+}
+
+function startNewCategory() {
+    selectedCategoryId = null;
+    resetCategoryForm();
+    document.getElementById('categoryName').focus();
+}
+
+function resetCategoryForm() {
+    const form = document.getElementById('category-settings-form');
+    form.reset();
+    document.getElementById('categoryId').value = '';
+    document.getElementById('deleteCategoryBtn').style.display = 'none';
+    
+    // Reset selections
+    document.querySelectorAll('.category-list-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // Select default icon and color
+    document.querySelector('.icon-option[data-icon="folder"]').classList.add('selected');
+    document.querySelector('.color-option[data-color="#3498db"]').classList.add('selected');
+}
+
+// Event Listeners for Category Settings
+document.getElementById('category-settings-modal').querySelector('.close-modal').addEventListener('click', () => {
+    document.getElementById('category-settings-modal').style.display = 'none';
+});
+
+document.getElementById('cancelCategoryEdit').addEventListener('click', () => {
+    resetCategoryForm();
+});
+
+document.getElementById('deleteCategoryBtn').addEventListener('click', async () => {
+    if (!selectedCategoryId) return;
+    
+    if (confirm('Are you sure you want to delete this category? All entries in this category will be moved to the default category.')) {
+        try {
+            await window.api.deleteCategory(selectedCategoryId);
+            await refreshCategories();
+            loadCategoriesList();
+            resetCategoryForm();
+            showNotification('Category deleted successfully', 'success');
+        } catch (error) {
+            console.error('Error deleting category:', error);
+            showNotification('Error deleting category', 'error');
+        }
+    }
+});
+
+document.getElementById('category-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Get the name from the input field - make sure we're using the correct ID
+    const nameInput = document.querySelector('#category-settings-modal input[type="text"]');
+    const name = nameInput ? nameInput.value.trim() : '';
+    const id = document.getElementById('categoryId')?.value;
+    
+    // Get selected icon and color from the modal
+    const selectedIcon = document.querySelector('#category-settings-modal .icon-option.selected');
+    const selectedColor = document.querySelector('#category-settings-modal .color-option.selected');
+    
+    const icon = selectedIcon?.dataset.icon || 'folder';
+    const color = selectedColor?.dataset.color || '#3498db';
+    
+    if (!name) {
+        showNotification('Please enter a category name', 'error');
+        return;
+    }
+    
+    try {
+        const categoryData = {
+            name,
+            icon,
+            color
+        };
+
+        if (id) {
+            // Update existing category
+            await window.api.updateCategory({
+                id,
+                ...categoryData
+            });
+        } else {
+            // Add new category
+            await window.api.addCategory(categoryData);
+        }
+        
+        // Refresh the categories list and UI
+        await refreshCategories();
+        await loadCategoriesList();
+        resetCategoryForm();
+        showNotification(`Category ${id ? 'updated' : 'created'} successfully`, 'success');
+    } catch (error) {
+        console.error('Error saving category:', error);
+        showNotification('Error saving category', 'error');
+    }
+});
+
+// Icon and Color Picker Event Listeners
+document.querySelectorAll('.icon-option').forEach(option => {
+    option.addEventListener('click', () => {
+        document.querySelectorAll('.icon-option').forEach(opt => opt.classList.remove('selected'));
+        option.classList.add('selected');
+    });
+});
+
+document.querySelectorAll('.color-option').forEach(option => {
+    option.addEventListener('click', () => {
+        document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
+        option.classList.add('selected');
+    });
+});
+
+// Add the handleEntrySubmit function
+async function handleEntrySubmit(e) {
+    e.preventDefault();
+    
+    const title = document.getElementById('title').value.trim();
+    const categoryId = document.getElementById('category').value;
+    if (!title || !categoryId) {
+        showNotification('Please fill in all required fields', 'error');
+        return;
+    }
+    
+    try {
+        // Combine current and pending files
+        const files = [...currentFiles, ...pendingFiles];
+        
+        const entry = {
+            id: currentEntryId,
+            title: title,
+            description: document.getElementById('description').value,
+            wisdom: document.getElementById('wisdom').value,
+            categoryId: categoryId,
+            files: files,
+            tags: document.getElementById('tags').value
+        };
+        
+        if (currentEntryId) {
+            await window.api.updateEntry(entry);
+        } else {
+            await window.api.addEntry(entry);
+        }
+        
+        // Close the modal first
+        entryModal.style.display = 'none';
+        
+        // Reload entries for the current category
+        if (currentCategory) {
+            entries = await window.api.getEntries(currentCategory);
+            renderEntries(entries);
+        } else {
+            // If no category is selected, set it to the one we just used
+            currentCategory = categoryId;
+            entries = await window.api.getEntries(categoryId);
+            renderEntries(entries);
+            
+            // Update active state in category list
+            document.querySelectorAll('.category-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.id === categoryId) {
+                    item.classList.add('active');
+                }
+            });
+        }
+        
+        // Refresh categories to update counts
+        await refreshCategories();
+        
+        showNotification('Entry saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving entry:', error);
+        showNotification(`Error saving entry: ${error.message}`, 'error');
+    }
+} 

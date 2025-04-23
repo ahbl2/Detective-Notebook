@@ -139,6 +139,20 @@ function createWindow() {
       ]
     },
     {
+      label: 'Settings',
+      submenu: [
+        {
+          label: 'Categories',
+          click: () => mainWindow.webContents.send('show-category-settings')
+        },
+        { type: 'separator' },
+        {
+          label: 'Preferences',
+          click: () => mainWindow.webContents.send('show-preferences')
+        }
+      ]
+    },
+    {
       label: 'View',
       submenu: [
         {
@@ -236,8 +250,41 @@ async function initializeApp() {
         db.run(`CREATE TABLE IF NOT EXISTS categories (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL UNIQUE,
+          icon TEXT DEFAULT 'folder',
+          color TEXT DEFAULT '#3498db',
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // Add columns if they don't exist - using a more compatible approach
+        db.all(`PRAGMA table_info(categories)`, [], (err, rows) => {
+          if (err) {
+            console.error('Error checking categories table:', err);
+            return;
+          }
+
+          const columns = rows || [];
+          const columnNames = columns.map(col => col.name);
+
+          db.serialize(() => {
+            // Add icon column if it doesn't exist
+            if (!columnNames.includes('icon')) {
+              db.run('ALTER TABLE categories ADD COLUMN icon TEXT DEFAULT "folder"', (err) => {
+                if (err && !err.message.includes('duplicate column')) {
+                  console.error('Error adding icon column:', err);
+                }
+              });
+            }
+
+            // Add color column if it doesn't exist
+            if (!columnNames.includes('color')) {
+              db.run('ALTER TABLE categories ADD COLUMN color TEXT DEFAULT "#3498db"', (err) => {
+                if (err && !err.message.includes('duplicate column')) {
+                  console.error('Error adding color column:', err);
+                }
+              });
+            }
+          });
+        });
 
         // Entries table
         db.run(`CREATE TABLE IF NOT EXISTS entries (
@@ -303,6 +350,16 @@ async function initializeApp() {
             FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
           )
         `);
+
+        // Create favorites table
+        db.run(`CREATE TABLE IF NOT EXISTS favorites (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE,
+          UNIQUE(entry_id, device_id)
+        )`);
 
         // Check if categories table is empty
         db.get('SELECT COUNT(*) as count FROM categories', (err, row) => {
@@ -385,15 +442,39 @@ ipcMain.handle('get-categories', () => {
   });
 });
 
-ipcMain.handle('add-category', (event, name) => {
+ipcMain.handle('add-category', async (event, categoryData) => {
+  const { name, icon, color } = categoryData;
+  const id = uuidv4();
+  
   return new Promise((resolve, reject) => {
-    const id = uuidv4();
-    db.run('INSERT INTO categories (id, name) VALUES (?, ?)',
-      [id, name],
-      function(err) {
-        if (err) reject(err);
-        else resolve({ id, name });
-      });
+    const stmt = db.prepare('INSERT INTO categories (id, name, icon, color) VALUES (?, ?, ?, ?)');
+    stmt.run([id, name, icon || 'folder', color || '#3498db'], function(err) {
+      if (err) {
+        console.error('Error adding category:', err);
+        reject(err);
+      } else {
+        resolve({ id, name, icon, color });
+      }
+    });
+    stmt.finalize();
+  });
+});
+
+// Update category handler
+ipcMain.handle('update-category', async (event, categoryData) => {
+  const { id, name, icon, color } = categoryData;
+  
+  return new Promise((resolve, reject) => {
+    const stmt = db.prepare('UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?');
+    stmt.run([name, icon || 'folder', color || '#3498db', id], function(err) {
+      if (err) {
+        console.error('Error updating category:', err);
+        reject(err);
+      } else {
+        resolve({ id, name, icon, color });
+      }
+    });
+    stmt.finalize();
   });
 });
 
@@ -410,12 +491,14 @@ ipcMain.handle('get-entries', (event, categoryId) => {
         (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
         (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
          FROM entry_files ef
-         WHERE ef.entry_id = e.id) as files
+         WHERE ef.entry_id = e.id) as files,
+        CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
       FROM entries e
       LEFT JOIN categories c ON e.category_id = c.id
+      LEFT JOIN favorites f ON e.id = f.entry_id AND f.device_id = ?
       WHERE e.category_id = ?
       ORDER BY e.updated_at DESC
-    `, [categoryId], (err, rows) => {
+    `, [config.deviceId, categoryId], (err, rows) => {
       if (err) {
         console.error('Error getting entries:', err);
         reject(err);
@@ -487,7 +570,7 @@ ipcMain.handle('add-entry', (event, entry) => {
 });
 
 // Modify the saveFile handler
-ipcMain.handle('saveFile', async (event, fileData) => {
+ipcMain.handle('save-file', async (event, fileData) => {
   try {
     console.log('Received file save request:', fileData);
     
@@ -1032,6 +1115,160 @@ ipcMain.handle('increment-view-count', (event, entryId) => {
             }
         });
     });
+});
+
+// Add new IPC handlers for favorites
+ipcMain.handle('toggle-favorite', (event, entryId) => {
+    return new Promise((resolve, reject) => {
+        if (!entryId) {
+            reject(new Error('No entry ID provided'));
+            return;
+        }
+
+        // Check if entry is already favorited
+        db.get(
+            'SELECT id FROM favorites WHERE entry_id = ? AND device_id = ?',
+            [entryId, config.deviceId],
+            (err, row) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+
+                if (row) {
+                    // Remove from favorites
+                    db.run(
+                        'DELETE FROM favorites WHERE id = ?',
+                        [row.id],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve({ isFavorite: false });
+                        }
+                    );
+                } else {
+                    // Add to favorites
+                    const id = uuidv4();
+                    db.run(
+                        'INSERT INTO favorites (id, entry_id, device_id) VALUES (?, ?, ?)',
+                        [id, entryId, config.deviceId],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve({ isFavorite: true });
+                        }
+                    );
+                }
+            }
+        );
+    });
+});
+
+ipcMain.handle('get-dashboard-data', () => {
+    return new Promise((resolve, reject) => {
+        const data = {
+            favorites: [],
+            recentEntries: []
+        };
+
+        db.serialize(() => {
+            // Get favorited entries
+            db.all(`
+                SELECT e.*, c.name as category_name,
+                    (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating,
+                    (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
+                    (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
+                     FROM entry_files ef
+                     WHERE ef.entry_id = e.id) as files,
+                    1 as is_favorite
+                FROM entries e
+                LEFT JOIN categories c ON e.category_id = c.id
+                INNER JOIN favorites f ON e.id = f.entry_id
+                WHERE f.device_id = ?
+                ORDER BY e.updated_at DESC
+            `, [config.deviceId], (err, favorites) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+
+                // Process files for favorites
+                data.favorites = favorites.map(entry => {
+                    if (entry.files) {
+                        entry.files = entry.files.split(',').map(fileStr => {
+                            const [path, name] = fileStr.split('|');
+                            return { path, name };
+                        });
+                    } else {
+                        entry.files = [];
+                    }
+                    return entry;
+                });
+
+                // Get recent entries
+                db.all(`
+                    SELECT e.*, c.name as category_name,
+                        (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating,
+                        (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
+                        (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
+                         FROM entry_files ef
+                         WHERE ef.entry_id = e.id) as files,
+                        CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
+                    FROM entries e
+                    LEFT JOIN categories c ON e.category_id = c.id
+                    LEFT JOIN favorites f ON e.id = f.entry_id AND f.device_id = ?
+                    ORDER BY e.updated_at DESC
+                    LIMIT 10
+                `, [config.deviceId], (err, recent) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+
+                    // Process files for recent entries
+                    data.recentEntries = recent.map(entry => {
+                        if (entry.files) {
+                            entry.files = entry.files.split(',').map(fileStr => {
+                                const [path, name] = fileStr.split('|');
+                                return { path, name };
+                            });
+                        } else {
+                            entry.files = [];
+                        }
+                        return entry;
+                    });
+
+                    resolve(data);
+                });
+            });
+        });
+    });
+});
+
+// Category management
+ipcMain.handle('save-categories', async (event, categories) => {
+    try {
+        await fs.writeFile(
+            path.join(app.getPath('userData'), 'categories.json'),
+            JSON.stringify(categories, null, 2)
+        );
+        return true;
+    } catch (error) {
+        console.error('Error saving categories:', error);
+        throw error;
+    }
+});
+
+ipcMain.handle('load-categories', async () => {
+    try {
+        const categoriesPath = path.join(app.getPath('userData'), 'categories.json');
+        if (await fs.access(categoriesPath).then(() => true).catch(() => false)) {
+            const data = await fs.readFile(categoriesPath, 'utf8');
+            return JSON.parse(data);
+        }
+        return [];
+    } catch (error) {
+        console.error('Error loading categories:', error);
+        return [];
+    }
 });
 
 // This method will be called when Electron has finished initialization

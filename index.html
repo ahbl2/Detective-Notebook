@@ -21,10 +21,6 @@
             
             <div class="category-nav">
                 <div class="category-list"></div>
-                <button class="add-category-btn">
-                    <i class="fas fa-plus"></i>
-                    Add Category
-                </button>
             </div>
 
             <div class="sidebar-footer">
@@ -139,6 +135,74 @@
                     <li>Select the ZIP file</li>
                     <li>Review and confirm the changes</li>
                 </ol>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Modal -->
+    <div id="categoryModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('categoryModal').style.display='none'">&times;</span>
+            <h2>Add Category</h2>
+            <form id="categoryForm" onsubmit="handleCategorySubmit(event)">
+                <label for="categoryName">Name:</label>
+                <input type="text" id="categoryName" name="name" class="form-control" required>
+                <button type="submit" class="btn btn-primary">Add Category</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Category Settings Modal -->
+    <div id="category-settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-folder-cog"></i> Category Settings</h2>
+                <button class="close-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="category-settings-content">
+                <div class="categories-list">
+                    <!-- Categories will be listed here -->
+                </div>
+                <div class="category-form-container">
+                    <form id="category-settings-form">
+                        <div class="form-group">
+                            <label for="category-name">Category Name</label>
+                            <input type="text" id="category-name" name="name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Icon</label>
+                            <div class="icon-picker">
+                                <div class="icon-option selected" data-icon="folder"><i class="fas fa-folder"></i></div>
+                                <div class="icon-option" data-icon="book"><i class="fas fa-book"></i></div>
+                                <div class="icon-option" data-icon="file"><i class="fas fa-file"></i></div>
+                                <div class="icon-option" data-icon="tasks"><i class="fas fa-tasks"></i></div>
+                                <div class="icon-option" data-icon="clipboard"><i class="fas fa-clipboard"></i></div>
+                                <div class="icon-option" data-icon="briefcase"><i class="fas fa-briefcase"></i></div>
+                                <div class="icon-option" data-icon="archive"><i class="fas fa-archive"></i></div>
+                                <div class="icon-option" data-icon="bookmark"><i class="fas fa-bookmark"></i></div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Color</label>
+                            <div class="color-picker">
+                                <div class="color-option selected" data-color="#3498db" style="background-color: #3498db;"></div>
+                                <div class="color-option" data-color="#2ecc71" style="background-color: #2ecc71;"></div>
+                                <div class="color-option" data-color="#e74c3c" style="background-color: #e74c3c;"></div>
+                                <div class="color-option" data-color="#f1c40f" style="background-color: #f1c40f;"></div>
+                                <div class="color-option" data-color="#9b59b6" style="background-color: #9b59b6;"></div>
+                                <div class="color-option" data-color="#1abc9c" style="background-color: #1abc9c;"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="categoryId" name="id">
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Category</button>
+                            <button type="button" id="cancelCategoryEdit" class="btn btn-secondary">Cancel</button>
+                            <button type="button" id="deleteCategoryBtn" class="btn btn-danger" style="display: none;">Delete</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

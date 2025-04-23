@@ -10,8 +10,16 @@ contextBridge.exposeInMainWorld(
     
     // Database operations
     getCategories: () => ipcRenderer.invoke('get-categories'),
-    addCategory: (name) => ipcRenderer.invoke('add-category', name),
+    addCategory: (category) => ipcRenderer.invoke('add-category', category),
+    updateCategory: (category) => ipcRenderer.invoke('update-category', category),
     deleteCategory: (id) => ipcRenderer.invoke('delete-category', id),
+    
+    // Event listeners
+    receive: (channel, func) => {
+        if (channel === 'show-category-settings') {
+            ipcRenderer.on(channel, (event, ...args) => func(...args));
+        }
+    },
     
     // Entry operations
     getEntries: (categoryId) => ipcRenderer.invoke('get-entries', categoryId),
@@ -20,7 +28,7 @@ contextBridge.exposeInMainWorld(
     deleteEntry: (id) => ipcRenderer.invoke('delete-entry', id),
     
     // File operations
-    saveFile: (file) => ipcRenderer.invoke('saveFile', file),
+    save_file: (file) => ipcRenderer.invoke('save-file', file),
     openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
     downloadFile: (filePath) => ipcRenderer.invoke('download-file', filePath),
     
@@ -29,6 +37,10 @@ contextBridge.exposeInMainWorld(
     addRating: (rating) => ipcRenderer.invoke('add-rating', rating),
     getUserRating: (entryId) => ipcRenderer.invoke('get-user-rating', entryId),
     incrementViewCount: (entryId) => ipcRenderer.invoke('increment-view-count', entryId),
+    
+    // Favorite operations
+    toggleFavorite: (entryId) => ipcRenderer.invoke('toggle-favorite', entryId),
+    getDashboardData: () => ipcRenderer.invoke('get-dashboard-data'),
     
     // Comment operations
     getComments: (entryId) => ipcRenderer.invoke('get-comments', entryId),
@@ -39,6 +51,13 @@ contextBridge.exposeInMainWorld(
     importData: (data) => ipcRenderer.invoke('import-data', data),
     
     // App info
-    getAppInfo: () => ipcRenderer.invoke('get-app-info')
+    getAppInfo: () => ipcRenderer.invoke('get-app-info'),
+    saveEntry: (entry) => ipcRenderer.invoke('save-entry', entry),
+    loadEntries: () => ipcRenderer.invoke('load-entries'),
+    saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
+    loadFile: (filePath) => ipcRenderer.invoke('load-file', filePath),
+    deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
+    saveCategories: (categories) => ipcRenderer.invoke('save-categories', categories),
+    loadCategories: () => ipcRenderer.invoke('load-categories')
   }
 ); 
