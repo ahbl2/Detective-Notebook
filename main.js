@@ -292,6 +292,18 @@ async function initializeApp() {
           FOREIGN KEY (entry_id) REFERENCES entries(id)
         )`);
 
+        // Create a new table for files
+        db.run(`
+          CREATE TABLE IF NOT EXISTS entry_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
+          )
+        `);
+
         // Check if categories table is empty
         db.get('SELECT COUNT(*) as count FROM categories', (err, row) => {
           if (err) {
@@ -382,16 +394,42 @@ ipcMain.handle('add-category', (event, name) => {
 
 ipcMain.handle('get-entries', (event, categoryId) => {
   return new Promise((resolve, reject) => {
+    if (!categoryId) {
+      reject(new Error('No category ID provided'));
+      return;
+    }
+
     db.all(`
-      SELECT e.*, 
+      SELECT e.*, c.name as category_name,
+        (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating,
         (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
-        (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating
+        (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
+         FROM entry_files ef
+         WHERE ef.entry_id = e.id) as files
       FROM entries e
-      WHERE category_id = ?
-      ORDER BY created_at DESC
+      LEFT JOIN categories c ON e.category_id = c.id
+      WHERE e.category_id = ?
+      ORDER BY e.updated_at DESC
     `, [categoryId], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
+      if (err) {
+        console.error('Error getting entries:', err);
+        reject(err);
+      } else {
+        // Process the files string into an array of file objects
+        const entries = rows.map(row => {
+          const entry = { ...row };
+          if (entry.files) {
+            entry.files = entry.files.split(',').map(fileStr => {
+              const [path, name] = fileStr.split('|');
+              return { path, name };
+            });
+          } else {
+            entry.files = [];
+          }
+          return entry;
+        });
+        resolve(entries);
+      }
     });
   });
 });
@@ -511,31 +549,89 @@ ipcMain.handle('update-entry', (event, entry) => {
 
     const now = new Date().toISOString();
     
-    db.run(`
-      UPDATE entries SET
-        title = ?,
-        description = ?,
-        wisdom = ?,
-        category_id = ?,
-        file_path = ?,
-        updated_at = ?
-      WHERE id = ?
-    `, [
-      entry.title,
-      entry.description || '',
-      entry.wisdom || '',
-      entry.categoryId,
-      entry.file_path || null,
-      now,
-      entry.id
-    ], function(err) {
-      if (err) {
-        console.error('Error updating entry:', err);
-        reject(err);
-      } else {
-        console.log('Entry updated successfully:', entry.id);
-        resolve({ ...entry, updated_at: now });
-      }
+    // Start a transaction
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+
+      // Update the entry
+      db.run(`
+        UPDATE entries SET
+          title = ?,
+          description = ?,
+          wisdom = ?,
+          category_id = ?,
+          updated_at = ?
+        WHERE id = ?
+      `, [
+        entry.title,
+        entry.description || '',
+        entry.wisdom || '',
+        entry.categoryId,
+        now,
+        entry.id
+      ], function(err) {
+        if (err) {
+          console.error('Error updating entry:', err);
+          db.run('ROLLBACK');
+          reject(err);
+          return;
+        }
+
+        // Delete existing files
+        db.run('DELETE FROM entry_files WHERE entry_id = ?', [entry.id], (err) => {
+          if (err) {
+            console.error('Error deleting existing files:', err);
+            db.run('ROLLBACK');
+            reject(err);
+            return;
+          }
+
+          // Insert new files
+          if (entry.files && entry.files.length > 0) {
+            const stmt = db.prepare(`
+              INSERT INTO entry_files (entry_id, file_path, file_name, created_at)
+              VALUES (?, ?, ?, ?)
+            `);
+
+            entry.files.forEach(file => {
+              stmt.run([entry.id, file.path, file.name, now]);
+            });
+
+            stmt.finalize((err) => {
+              if (err) {
+                console.error('Error inserting files:', err);
+                db.run('ROLLBACK');
+                reject(err);
+                return;
+              }
+
+              db.run('COMMIT', (err) => {
+                if (err) {
+                  console.error('Error committing transaction:', err);
+                  db.run('ROLLBACK');
+                  reject(err);
+                  return;
+                }
+
+                console.log('Entry and files updated successfully:', entry.id);
+                resolve({ ...entry, updated_at: now });
+              });
+            });
+          } else {
+            db.run('COMMIT', (err) => {
+              if (err) {
+                console.error('Error committing transaction:', err);
+                db.run('ROLLBACK');
+                reject(err);
+                return;
+              }
+
+              console.log('Entry updated successfully:', entry.id);
+              resolve({ ...entry, updated_at: now });
+            });
+          }
+        });
+      });
     });
   });
 });
@@ -650,6 +746,30 @@ ipcMain.handle('get-ratings', (event, entryId) => {
   });
 });
 
+// Get a user's rating for an entry
+ipcMain.handle('get-user-rating', (event, entryId) => {
+  return new Promise((resolve, reject) => {
+    if (!entryId) {
+      reject(new Error('No entry ID provided'));
+      return;
+    }
+
+    db.get(
+      'SELECT value FROM ratings WHERE entry_id = ? AND device_id = ?',
+      [entryId, config.deviceId],
+      (err, row) => {
+        if (err) {
+          console.error('Error getting user rating:', err);
+          reject(err);
+        } else {
+          resolve(row ? row.value : null);
+        }
+      }
+    );
+  });
+});
+
+// Update the add-rating handler to handle rating updates
 ipcMain.handle('add-rating', (event, rating) => {
   return new Promise((resolve, reject) => {
     if (!rating || !rating.entry_id || !rating.value) {
@@ -657,17 +777,46 @@ ipcMain.handle('add-rating', (event, rating) => {
       return;
     }
 
-    const id = uuidv4();
-    const { entry_id, value } = rating;
-    db.run(
-      'INSERT INTO ratings (id, entry_id, device_id, value, created_at) VALUES (?, ?, ?, ?, ?)',
-      [id, entry_id, config.deviceId, value, new Date().toISOString()],
-      function(err) {
+    // First check if user has already rated this entry
+    db.get(
+      'SELECT id FROM ratings WHERE entry_id = ? AND device_id = ?',
+      [rating.entry_id, config.deviceId],
+      (err, row) => {
         if (err) {
-          console.error('Error adding rating:', err);
+          console.error('Error checking existing rating:', err);
           reject(err);
+          return;
+        }
+
+        if (row) {
+          // Update existing rating
+          db.run(
+            'UPDATE ratings SET value = ?, created_at = ? WHERE id = ?',
+            [rating.value, new Date().toISOString(), row.id],
+            function(err) {
+              if (err) {
+                console.error('Error updating rating:', err);
+                reject(err);
+              } else {
+                resolve({ id: row.id, entry_id: rating.entry_id, value: rating.value });
+              }
+            }
+          );
         } else {
-          resolve({ id, entry_id, value });
+          // Add new rating
+          const id = uuidv4();
+          db.run(
+            'INSERT INTO ratings (id, entry_id, device_id, value, created_at) VALUES (?, ?, ?, ?, ?)',
+            [id, rating.entry_id, config.deviceId, rating.value, new Date().toISOString()],
+            function(err) {
+              if (err) {
+                console.error('Error adding rating:', err);
+                reject(err);
+              } else {
+                resolve({ id, entry_id: rating.entry_id, value: rating.value });
+              }
+            }
+          );
         }
       }
     );
@@ -859,6 +1008,25 @@ ipcMain.handle('download-file', async (event, filePath) => {
     console.error('Error downloading file:', error);
     throw error;
   }
+});
+
+// Increment view count for an entry
+ipcMain.handle('increment-view-count', (event, entryId) => {
+    return new Promise((resolve, reject) => {
+        if (!entryId) {
+            reject(new Error('No entry ID provided'));
+            return;
+        }
+
+        db.run('UPDATE entries SET view_count = view_count + 1 WHERE id = ?', [entryId], (err) => {
+            if (err) {
+                console.error('Error incrementing view count:', err);
+                reject(err);
+            } else {
+                resolve();
+            }
+        });
+    });
 });
 
 // This method will be called when Electron has finished initialization

@@ -15,6 +15,8 @@ let entries = [];
 let config = null;
 let currentEntryId = null;
 let currentFilePath = null;
+let currentFiles = [];
+let pendingFiles = [];
 
 // Initialize the app
 async function initApp() {
@@ -142,6 +144,25 @@ function daysSince(date) {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
+// Calculate time since a date
+function timeSince(date) {
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffMinutes = Math.floor(diffTime / (1000 * 60));
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) {
+        return `${diffDays}d`;
+    } else if (diffHours > 0) {
+        return `${diffHours}h`;
+    } else if (diffMinutes > 0) {
+        return `${diffMinutes}m`;
+    } else {
+        return 'just now';
+    }
+}
+
 // Show merge notification
 function showMergeNotification() {
     const notification = document.createElement('div');
@@ -179,23 +200,8 @@ function setupEventListeners() {
         }
         
         try {
-            const fileInput = document.getElementById('file');
-            let filePath = currentFilePath;
-            
-            // Handle file upload if a new file is selected
-            if (fileInput.files.length > 0) {
-                const file = fileInput.files[0];
-                
-                // Create file data object with name and path
-                const fileData = {
-                    name: file.name,
-                    path: file.path || file.name // fallback to name if path is not available
-                };
-                
-                // Save the file and get the new path
-                const result = await window.api.saveFile(fileData);
-                filePath = result.filePath;
-            }
+            // Combine current and pending files
+            const files = [...currentFiles, ...pendingFiles];
             
             const entry = {
                 id: currentEntryId,
@@ -203,7 +209,7 @@ function setupEventListeners() {
                 description: document.getElementById('description').value,
                 wisdom: document.getElementById('wisdom').value,
                 categoryId: categoryId,
-                file_path: filePath,
+                files: files,
                 tags: document.getElementById('tags').value
             };
             
@@ -311,11 +317,10 @@ async function loadEntries(categoryId) {
 }
 
 // Helper function to render star ratings
-function renderStars(rating, entryId) {
-    const roundedRating = Math.round(rating || 0);
+function renderStars(entryId, currentRating = null) {
     let stars = '<div class="rating-stars" data-entry-id="' + entryId + '">';
     for (let i = 1; i <= 5; i++) {
-        stars += `<span class="star ${i <= roundedRating ? 'active' : ''}" data-rating="${i}">★</span>`;
+        stars += `<span class="star ${i <= (currentRating || 0) ? 'active' : ''}" data-rating="${i}">★</span>`;
     }
     stars += '</div>';
     return stars;
@@ -369,14 +374,17 @@ function renderEntries(entriesToRender = entries) {
     
     // Create and append each entry element
     entriesToRender.forEach(entry => {
+        console.log('Processing entry:', entry);
+        console.log('Entry files:', entry.files);
+        
         const entryElement = document.createElement('div');
         entryElement.className = 'entry';
         entryElement.dataset.entryId = entry.id;
         
         // Format dates
         const createdDate = new Date(entry.created_at);
-        const updatedDate = new Date(entry.updated_at);
-        const daysSinceUpdate = daysSince(updatedDate);
+        const lastEditDate = new Date(entry.last_edit_at || entry.updated_at);
+        const timeSinceEdit = timeSince(lastEditDate);
         
         // Create the entry content
         entryElement.innerHTML = `
@@ -390,9 +398,9 @@ function renderEntries(entriesToRender = entries) {
                         <i class="fas fa-calendar-plus"></i>
                         ${createdDate.toLocaleDateString()}
                     </span>
-                    <span class="metadata-item" title="Updated ${daysSinceUpdate} days ago">
+                    <span class="metadata-item" title="Last edited ${lastEditDate.toLocaleString()}">
                         <i class="fas fa-clock"></i>
-                        ${daysSinceUpdate}d
+                        ${timeSinceEdit}
                     </span>
                     <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
                         <i class="fas fa-eye"></i>
@@ -413,19 +421,38 @@ function renderEntries(entriesToRender = entries) {
                         <p>${entry.wisdom}</p>
                     </div>
                 ` : ''}
-                ${entry.file_path ? `
+                ${(entry.files && entry.files.length > 0) || entry.file_path ? `
                     <div class="entry-section">
-                        <h4><i class="fas fa-paperclip"></i> File</h4>
-                        <div class="file-attachment" title="Click to open file">
-                            <i class="fas fa-file"></i>
-                            <span>${entry.file_path.split('/').pop()}</span>
+                        <h4><i class="fas fa-paperclip"></i> Files</h4>
+                        <div class="files-list">
+                            ${entry.files ? entry.files.map(file => `
+                                <div class="file-attachment" title="Click to open file">
+                                    <i class="fas fa-file"></i>
+                                    <span class="file-name">${file.name || file.path.split('/').pop()}</span>
+                                    <div class="file-actions">
+                                        <button class="download-btn" title="Download file">
+                                            <i class="fas fa-download"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <div class="file-attachment" title="Click to open file">
+                                    <i class="fas fa-file"></i>
+                                    <span class="file-name">${entry.file_path.split('/').pop()}</span>
+                                    <div class="file-actions">
+                                        <button class="download-btn" title="Download file">
+                                            <i class="fas fa-download"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `}
                         </div>
                     </div>
                 ` : ''}
             </div>
             <div class="entry-footer">
                 <div class="rating-section">
-                    ${renderStars(entry.rating, entry.id)}
+                    ${renderStars(entry.id, 0)}
                 </div>
                 ${entry.tags ? `
                     <div class="tags">
@@ -445,24 +472,88 @@ function renderEntries(entriesToRender = entries) {
             </div>
         `;
         
-        // Add file click handler
-        if (entry.file_path) {
-            const fileAttachment = entryElement.querySelector('.file-attachment');
-            if (fileAttachment) {
-                fileAttachment.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    window.api.openFile(entry.file_path);
+        // Update the file click handlers to increment view count
+        if ((entry.files && entry.files.length > 0) || entry.file_path) {
+            const fileAttachments = entryElement.querySelectorAll('.file-attachment');
+            fileAttachments.forEach((fileAttachment, index) => {
+                const file = entry.files ? entry.files[index] : { path: entry.file_path };
+                
+                // Open file on click
+                fileAttachment.addEventListener('click', async (e) => {
+                    if (!e.target.closest('.download-btn')) {
+                        try {
+                            await window.api.openFile(file.path);
+                            // Increment view count when file is opened
+                            await window.api.incrementViewCount(entry.id);
+                            // Update the view count display
+                            const viewCountElement = entryElement.querySelector('.metadata-item[title^="Viewed"]');
+                            if (viewCountElement) {
+                                const currentCount = parseInt(viewCountElement.textContent) || 0;
+                                viewCountElement.textContent = currentCount + 1;
+                                viewCountElement.title = `Viewed ${currentCount + 1} times`;
+                            }
+                        } catch (error) {
+                            console.error('Error opening file:', error);
+                            showNotification('Failed to open file', 'error');
+                        }
+                    }
                 });
-            }
+
+                // Download file on download button click
+                const downloadBtn = fileAttachment.querySelector('.download-btn');
+                if (downloadBtn) {
+                    downloadBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await window.api.downloadFile(file.path);
+                            // Increment view count when file is downloaded
+                            await window.api.incrementViewCount(entry.id);
+                            // Update the view count display
+                            const viewCountElement = entryElement.querySelector('.metadata-item[title^="Viewed"]');
+                            if (viewCountElement) {
+                                const currentCount = parseInt(viewCountElement.textContent) || 0;
+                                viewCountElement.textContent = currentCount + 1;
+                                viewCountElement.title = `Viewed ${currentCount + 1} times`;
+                            }
+                            showNotification('File download started', 'success');
+                        } catch (error) {
+                            console.error('Error downloading file:', error);
+                            showNotification('Failed to download file', 'error');
+                        }
+                    });
+                }
+            });
         }
         
-        // Add rating stars click handler
-        const ratingStars = entryElement.querySelector('.rating-stars');
-        if (ratingStars) {
-            ratingStars.querySelectorAll('.star').forEach(star => {
-                star.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    handleStarClick(star);
+        // Update the rating stars display in renderEntries
+        const ratingSection = entryElement.querySelector('.rating-section');
+        if (ratingSection) {
+            window.api.getUserRating(entry.id).then(userRating => {
+                ratingSection.innerHTML = renderStars(entry.id, userRating);
+                
+                // Add click handlers to the stars
+                const stars = ratingSection.querySelectorAll('.star');
+                stars.forEach(star => {
+                    star.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const rating = parseInt(star.dataset.rating);
+                        try {
+                            await window.api.addRating({
+                                entry_id: entry.id,
+                                value: rating
+                            });
+                            
+                            // Update the stars visually
+                            stars.forEach((s, index) => {
+                                s.classList.toggle('active', index < rating);
+                            });
+                            
+                            showNotification('Rating saved successfully', 'success');
+                        } catch (error) {
+                            console.error('Error saving rating:', error);
+                            showNotification('Error saving rating', 'error');
+                        }
+                    });
                 });
             });
         }
@@ -556,10 +647,11 @@ async function populateCategoryDropdown() {
 
 // Show modal for adding/editing entries
 function showModal(entry = null) {
-    console.log('Opening modal with entry:', entry); // Debug log
+    console.log('Opening modal with entry:', entry);
     
     // Reset form and clear any existing data
     entryForm.reset();
+    pendingFiles = [];
     
     // Update modal title
     const modalTitle = entryModal.querySelector('h2');
@@ -593,43 +685,23 @@ function showModal(entry = null) {
         if (entry) {
             // If editing an existing entry
             currentEntryId = entry.id;
+            currentFiles = entry.files || [];
             document.getElementById('title').value = entry.title || '';
             document.getElementById('description').value = entry.description || '';
             document.getElementById('wisdom').value = entry.wisdom || '';
             document.getElementById('tags').value = entry.tags || '';
             
-            // Set the category - this should match the ID from the database
+            // Set the category
             const categorySelect = document.getElementById('category');
             if (entry.category_id) {
-                console.log('Setting category to:', entry.category_id); // Debug log
                 categorySelect.value = entry.category_id;
             } else if (entry.categoryId) {
-                console.log('Setting category to:', entry.categoryId); // Debug log
                 categorySelect.value = entry.categoryId;
-            }
-            
-            // Handle file attachment
-            if (entry.file_path) {
-                currentFilePath = entry.file_path;
-                const fileInfo = document.createElement('div');
-                fileInfo.className = 'current-file-info';
-                fileInfo.innerHTML = `
-                    <p>Current file: ${entry.file_path.split('/').pop()}</p>
-                    <button type="button" class="remove-file-btn">Remove File</button>
-                `;
-                entryForm.insertBefore(fileInfo, entryForm.querySelector('.form-actions'));
-                
-                // Add event listener for remove file button
-                const removeFileBtn = fileInfo.querySelector('.remove-file-btn');
-                removeFileBtn.addEventListener('click', () => {
-                    currentFilePath = '';
-                    fileInfo.remove();
-                });
             }
         } else {
             // If adding a new entry
             currentEntryId = null;
-            currentFilePath = null;
+            currentFiles = [];
             
             // Set the current category if one is selected
             if (currentCategory) {
@@ -638,9 +710,88 @@ function showModal(entry = null) {
             }
         }
         
+        // Update file display
+        updateFileDisplay();
+        
         // Focus on title field
         document.getElementById('title').focus();
     });
+}
+
+// Handle file input changes
+document.getElementById('file').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    
+    for (const file of files) {
+        try {
+            // Save the file and get the new path
+            const result = await window.api.saveFile({
+                name: file.name,
+                path: file.path || file.name
+            });
+            
+            pendingFiles.push({
+                name: file.name,
+                path: result.filePath
+            });
+            
+            // Update the file display
+            updateFileDisplay();
+        } catch (error) {
+            console.error('Error saving file:', error);
+            showNotification('Error saving file', 'error');
+        }
+    }
+    
+    // Clear the file input
+    e.target.value = '';
+});
+
+// Update the file display in the modal
+function updateFileDisplay() {
+    const fileInfo = document.createElement('div');
+    fileInfo.className = 'current-file-info';
+    
+    const allFiles = [...currentFiles, ...pendingFiles];
+    
+    if (allFiles.length > 0) {
+        fileInfo.innerHTML = `
+            <p>Attached files:</p>
+            <ul class="file-list">
+                ${allFiles.map(file => `
+                    <li>
+                        <span>${file.name || file.path.split('/').pop()}</span>
+                        <button type="button" class="remove-file-btn" data-path="${file.path}">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </li>
+                `).join('')}
+            </ul>
+        `;
+        
+        // Add event listeners for remove file buttons
+        fileInfo.querySelectorAll('.remove-file-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const path = btn.dataset.path;
+                // Remove from either currentFiles or pendingFiles
+                currentFiles = currentFiles.filter(file => file.path !== path);
+                pendingFiles = pendingFiles.filter(file => file.path !== path);
+                updateFileDisplay();
+            });
+        });
+    } else {
+        fileInfo.innerHTML = '<p>No files attached</p>';
+    }
+    
+    // Remove existing file info if present
+    const existingFileInfo = entryModal.querySelector('.current-file-info');
+    if (existingFileInfo) {
+        existingFileInfo.remove();
+    }
+    
+    // Insert new file info before form actions
+    const formActions = entryModal.querySelector('.form-actions');
+    entryModal.querySelector('form').insertBefore(fileInfo, formActions);
 }
 
 // Handle add category

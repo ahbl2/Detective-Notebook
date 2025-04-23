@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld(
     // Rating operations
     getRatings: (entryId) => ipcRenderer.invoke('get-ratings', entryId),
     addRating: (rating) => ipcRenderer.invoke('add-rating', rating),
+    getUserRating: (entryId) => ipcRenderer.invoke('get-user-rating', entryId),
+    incrementViewCount: (entryId) => ipcRenderer.invoke('increment-view-count', entryId),
     
     // Comment operations
     getComments: (entryId) => ipcRenderer.invoke('get-comments', entryId),
