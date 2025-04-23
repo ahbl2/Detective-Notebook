@@ -351,7 +351,16 @@ function renderEntries(entriesToRender = entries) {
     const container = document.querySelector('.entries-container');
     
     if (!entriesToRender || entriesToRender.length === 0) {
-        container.innerHTML = '<p>No entries found in this category. Click "Add Entry" to create one.</p>';
+        container.innerHTML = `
+            <div class="no-entries">
+                <i class="fas fa-clipboard-list"></i>
+                <p>No entries found in this category.</p>
+                <button class="add-entry-btn">
+                    <i class="fas fa-plus"></i>
+                    Add Entry
+                </button>
+            </div>
+        `;
         return;
     }
     
@@ -364,150 +373,128 @@ function renderEntries(entriesToRender = entries) {
         entryElement.className = 'entry';
         entryElement.dataset.entryId = entry.id;
         
-        // Create the entry content
-        const entryContent = document.createElement('div');
-        entryContent.className = `entry-content ${entry.file_path ? 'has-file' : ''}`;
-        entryContent.dataset.filePath = entry.file_path || '';
+        // Format dates
+        const createdDate = new Date(entry.created_at);
+        const updatedDate = new Date(entry.updated_at);
+        const daysSinceUpdate = daysSince(updatedDate);
         
-        // Add the entry content HTML
-        entryContent.innerHTML = `
+        // Create the entry content
+        entryElement.innerHTML = `
             <div class="entry-header">
                 <div class="entry-title">
-                    <h4>Title</h4>
+                    <h4>${entry.category_name || 'Entry'}</h4>
                     <h3>${entry.title}</h3>
                 </div>
                 <div class="entry-metadata">
-                    <span class="metadata-item">
-                        <i class="fas fa-user"></i>
-                        Added by ${entry.device_id || 'Unknown'} on ${new Date(entry.created_at).toLocaleDateString()}
+                    <span class="metadata-item" title="Created on ${createdDate.toLocaleDateString()}">
+                        <i class="fas fa-calendar-plus"></i>
+                        ${createdDate.toLocaleDateString()}
                     </span>
-                    <span class="metadata-item">
+                    <span class="metadata-item" title="Updated ${daysSinceUpdate} days ago">
                         <i class="fas fa-clock"></i>
-                        Last updated: ${new Date(entry.updated_at).toLocaleDateString()}
+                        ${daysSinceUpdate}d
                     </span>
-                    <span class="metadata-item">
+                    <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
                         <i class="fas fa-eye"></i>
-                        Views: ${entry.view_count || 0}
+                        ${entry.view_count || 0}
                     </span>
                 </div>
             </div>
-            ${entry.description ? `
-                <div class="entry-section">
-                    <h4>Description</h4>
-                    <p class="description">${entry.description}</p>
-                </div>
-            ` : ''}
-            ${entry.wisdom ? `
-                <div class="entry-section">
-                    <h4>Detective Wisdom</h4>
-                    <p class="wisdom">${entry.wisdom}</p>
-                </div>
-            ` : ''}
-            ${entry.file_path ? `
-                <div class="entry-section">
-                    <h4>Attached File</h4>
-                    <div class="file-attachment">
-                        <span>📎 ${entry.file_path.split('/').pop()}</span>
+            <div class="entry-content">
+                ${entry.description ? `
+                    <div class="entry-section">
+                        <h4><i class="fas fa-align-left"></i> Description</h4>
+                        <p>${entry.description}</p>
                     </div>
-                </div>
-            ` : ''}
-            <div class="entry-meta">
-                <div class="rating-section">
-                    <h4>Rating</h4>
-                    ${renderStars(entry.rating, entry.id)}
-                    <span class="rating-count">(${entry.rating_count || 0} ratings)</span>
-                </div>
-                ${entry.tags ? `
-                    <div class="tags-section">
-                        <h4>Tags</h4>
-                        <div class="tags">
-                            ${entry.tags.split(',').map(tag => `<span class="tag">${tag.trim()}</span>`).join('')}
+                ` : ''}
+                ${entry.wisdom ? `
+                    <div class="entry-section">
+                        <h4><i class="fas fa-lightbulb"></i> Wisdom</h4>
+                        <p>${entry.wisdom}</p>
+                    </div>
+                ` : ''}
+                ${entry.file_path ? `
+                    <div class="entry-section">
+                        <h4><i class="fas fa-paperclip"></i> File</h4>
+                        <div class="file-attachment" title="Click to open file">
+                            <i class="fas fa-file"></i>
+                            <span>${entry.file_path.split('/').pop()}</span>
                         </div>
                     </div>
                 ` : ''}
             </div>
+            <div class="entry-footer">
+                <div class="rating-section">
+                    ${renderStars(entry.rating, entry.id)}
+                </div>
+                ${entry.tags ? `
+                    <div class="tags">
+                        ${entry.tags.split(',').map(tag => `<span class="tag" title="Filter by tag">${tag.trim()}</span>`).join('')}
+                    </div>
+                ` : ''}
+                <div class="entry-actions">
+                    <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
+                        <i class="fas fa-edit"></i>
+                        Edit
+                    </button>
+                    <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
+                        <i class="fas fa-trash"></i>
+                        Delete
+                    </button>
+                </div>
+            </div>
         `;
-        
-        // Create action buttons container
-        const actionsContainer = document.createElement('div');
-        actionsContainer.className = 'entry-actions';
-        
-        // Create edit button
-        const editBtn = document.createElement('button');
-        editBtn.className = 'edit-btn';
-        editBtn.textContent = '✏️';
-        editBtn.dataset.entryId = entry.id;
-        
-        // Create delete button
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = '🗑️';
-        deleteBtn.dataset.entryId = entry.id;
-        
-        // Add buttons to actions container
-        actionsContainer.appendChild(editBtn);
-        actionsContainer.appendChild(deleteBtn);
-        
-        // Add the main sections to the entry element
-        entryElement.appendChild(entryContent);
-        entryElement.appendChild(actionsContainer);
         
         // Add file click handler
         if (entry.file_path) {
-            entryContent.addEventListener('click', (e) => {
-                if (!e.target.closest('button') && !e.target.closest('.rating-stars')) {
+            const fileAttachment = entryElement.querySelector('.file-attachment');
+            if (fileAttachment) {
+                fileAttachment.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     window.api.openFile(entry.file_path);
-                }
-            });
+                });
+            }
         }
         
         // Add rating stars click handler
-        const ratingStars = entryContent.querySelector('.rating-stars');
+        const ratingStars = entryElement.querySelector('.rating-stars');
         if (ratingStars) {
             ratingStars.querySelectorAll('.star').forEach(star => {
                 star.addEventListener('click', (e) => {
                     e.stopPropagation();
                     handleStarClick(star);
                 });
-                
-                // Add hover effect
-                star.addEventListener('mouseenter', () => {
-                    const rating = parseInt(star.dataset.rating);
-                    const stars = star.parentElement.querySelectorAll('.star');
-                    stars.forEach((s, index) => {
-                        s.classList.toggle('hover', index < rating);
-                    });
-                });
-                
-                star.addEventListener('mouseleave', () => {
-                    const stars = star.parentElement.querySelectorAll('.star');
-                    stars.forEach(s => s.classList.remove('hover'));
-                });
             });
         }
         
         // Add edit button handler
-        editBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showModal(entry);
-        });
+        const editBtn = entryElement.querySelector('.edit-btn');
+        if (editBtn) {
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showModal(entry);
+            });
+        }
         
         // Add delete button handler
-        deleteBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('Are you sure you want to delete this entry?')) {
-                try {
-                    await window.api.deleteEntry(entry.id);
-                    // Reload entries after deletion
-                    entries = await window.api.getEntries(currentCategory);
-                    renderEntries(entries);
-                    showNotification('Entry deleted successfully', 'success');
-                } catch (error) {
-                    console.error('Error deleting entry:', error);
-                    showNotification('Failed to delete entry', 'error');
+        const deleteBtn = entryElement.querySelector('.delete-btn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
+                    try {
+                        await window.api.deleteEntry(entry.id);
+                        // Reload entries after deletion
+                        entries = await window.api.getEntries(currentCategory);
+                        renderEntries(entries);
+                        showNotification('Entry deleted successfully', 'success');
+                    } catch (error) {
+                        console.error('Error deleting entry:', error);
+                        showNotification('Failed to delete entry', 'error');
+                    }
                 }
-            }
-        });
+            });
+        }
         
         // Add the complete entry to the container
         container.appendChild(entryElement);
