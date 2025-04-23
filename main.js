@@ -373,7 +373,12 @@ ipcMain.handle('update-config', (event, newConfig) => {
 
 ipcMain.handle('get-categories', () => {
   return new Promise((resolve, reject) => {
-    db.all('SELECT * FROM categories ORDER BY name', (err, rows) => {
+    db.all(`
+      SELECT c.*,
+        (SELECT COUNT(*) FROM entries WHERE category_id = c.id) as entryCount
+      FROM categories c
+      ORDER BY c.name
+    `, (err, rows) => {
       if (err) reject(err);
       else resolve(rows);
     });

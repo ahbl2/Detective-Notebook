@@ -241,6 +241,9 @@ function setupEventListeners() {
                 });
             }
             
+            // Refresh categories to update counts
+            await refreshCategories();
+            
             showNotification('Entry saved successfully', 'success');
         } catch (error) {
             console.error('Error saving entry:', error);
@@ -578,6 +581,8 @@ function renderEntries(entriesToRender = entries) {
                         // Reload entries after deletion
                         entries = await window.api.getEntries(currentCategory);
                         renderEntries(entries);
+                        // Refresh categories to update counts
+                        await refreshCategories();
                         showNotification('Entry deleted successfully', 'success');
                     } catch (error) {
                         console.error('Error deleting entry:', error);
@@ -902,6 +907,16 @@ function showNotification(message, type = 'info') {
     setTimeout(() => {
         notification.remove();
     }, 5000);
+}
+
+// Add a function to refresh categories
+async function refreshCategories() {
+    try {
+        const categories = await window.api.getCategories();
+        renderCategories(categories);
+    } catch (error) {
+        console.error('Error refreshing categories:', error);
+    }
 }
 
 // Initialize the app when the DOM is loaded
