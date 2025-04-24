@@ -1,0 +1,45 @@
+/* Icon font for basic UI elements */
+.icon {
+    font-family: sans-serif;
+    font-style: normal;
+    display: inline-block;
+}
+
+/* Basic icons using Unicode characters */
+.icon-search::before { content: "🔍"; }
+.icon-plus::before { content: "+"; }
+.icon-close::before { content: "×"; }
+.icon-edit::before { content: "✎"; }
+.icon-delete::before { content: "🗑"; }
+.icon-star::before { content: "★"; }
+.icon-star-empty::before { content: "☆"; }
+.icon-folder::before { content: "📁"; }
+.icon-file::before { content: "📄"; }
+.icon-settings::before { content: "⚙"; }
+.icon-export::before { content: "⤴"; }
+.icon-import::before { content: "⤵"; }
+.icon-help::before { content: "?"; }
+.icon-usb::before { content: "📱"; }
+.icon-calendar::before { content: "📅"; }
+.icon-clock::before { content: "🕒"; }
+.icon-eye::before { content: "👁"; }
+.icon-tag::before { content: "🏷"; }
+.icon-book::before { content: "📚"; }
+.icon-tasks::before { content: "☑"; }
+.icon-clipboard::before { content: "📋"; }
+.icon-briefcase::before { content: "💼"; }
+.icon-archive::before { content: "📦"; }
+.icon-bookmark::before { content: "🔖"; }
+.icon-home::before { content: "🏠"; }
+.icon-description::before { content: "📝"; }
+.icon-wisdom::before { content: "💡"; }
+.icon-paperclip::before { content: "📎"; }
+.icon-download::before { content: "⭳"; }
+.icon-times::before { content: "✖"; }
+.icon-calendar-plus::before { content: "📅"; }
+.icon-question-circle::before { content: "❓"; }
+.icon-trash::before { content: "🗑"; }
+.icon-lightbulb::before { content: "💡"; }
+.icon-align-left::before { content: "☰"; }
+.icon-folder-cog::before { content: "📁⚙"; }
+.icon-users::before { content: "👥"; } 

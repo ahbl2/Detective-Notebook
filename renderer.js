@@ -294,7 +294,7 @@ async function handleStarClick(star) {
     try {
         await window.api.addRating({
             entry_id: entryId,
-            value: rating
+            rating: rating
         });
         
         // Update the stars visually
@@ -326,6 +326,12 @@ function renderEntries(entriesToRender = entries) {
                 </button>
             </div>
         `;
+        
+        // Add click event listener to the Add Entry button
+        const addEntryBtn = container.querySelector('.add-entry-btn');
+        if (addEntryBtn) {
+            addEntryBtn.addEventListener('click', () => showModal());
+        }
         return;
     }
     
@@ -334,244 +340,7 @@ function renderEntries(entriesToRender = entries) {
     
     // Create and append each entry element
     entriesToRender.forEach(entry => {
-        console.log('Processing entry:', entry);
-        console.log('Entry files:', entry.files);
-        
-        const entryElement = document.createElement('div');
-        entryElement.className = 'entry';
-        entryElement.dataset.entryId = entry.id;
-        
-        // Format dates
-        const createdDate = new Date(entry.created_at);
-        const lastEditDate = new Date(entry.last_edit_at || entry.updated_at);
-        const timeSinceEdit = timeSince(lastEditDate);
-        
-        // Create the entry content
-        entryElement.innerHTML = `
-            <button class="favorite-btn ${entry.is_favorite ? 'active' : ''}" title="Toggle favorite">
-                <i class="fas fa-star"></i>
-            </button>
-            <div class="entry-header">
-                <div class="entry-title">
-                    <h4>${entry.category_name || 'Entry'}</h4>
-                    <h3>${entry.title}</h3>
-                </div>
-                <div class="entry-metadata">
-                    <span class="metadata-item" title="Created on ${createdDate.toLocaleDateString()}">
-                        <i class="fas fa-calendar-plus"></i>
-                        ${createdDate.toLocaleDateString()}
-                    </span>
-                    <span class="metadata-item" title="Last edited ${lastEditDate.toLocaleString()}">
-                        <i class="fas fa-clock"></i>
-                        ${timeSinceEdit}
-                    </span>
-                    <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
-                        <i class="fas fa-eye"></i>
-                        ${entry.view_count || 0}
-                    </span>
-                </div>
-            </div>
-            <div class="entry-content">
-                ${entry.description ? `
-                    <div class="entry-section">
-                        <h4><i class="fas fa-align-left"></i> Description</h4>
-                        <p>${entry.description}</p>
-                    </div>
-                ` : ''}
-                ${entry.wisdom ? `
-                    <div class="entry-section">
-                        <h4><i class="fas fa-lightbulb"></i> Wisdom</h4>
-                        <p>${entry.wisdom}</p>
-                    </div>
-                ` : ''}
-                ${(entry.files && entry.files.length > 0) || entry.file_path ? `
-                    <div class="entry-section">
-                        <h4><i class="fas fa-paperclip"></i> Files</h4>
-                        <div class="files-list">
-                            ${entry.files ? entry.files.map(file => `
-                                <div class="file-attachment" title="Click to open file">
-                                    <i class="fas fa-file"></i>
-                                    <span class="file-name">${file.name || file.path.split('/').pop()}</span>
-                                    <div class="file-actions">
-                                        <button class="download-btn" title="Download file">
-                                            <i class="fas fa-download"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            `).join('') : `
-                                <div class="file-attachment" title="Click to open file">
-                                    <i class="fas fa-file"></i>
-                                    <span class="file-name">${entry.file_path.split('/').pop()}</span>
-                                    <div class="file-actions">
-                                        <button class="download-btn" title="Download file">
-                                            <i class="fas fa-download"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            `}
-                        </div>
-                    </div>
-                ` : ''}
-            </div>
-            <div class="entry-footer">
-                <div class="rating-section">
-                    ${renderStars(entry.id, 0)}
-                </div>
-                ${entry.tags ? `
-                    <div class="tags">
-                        ${entry.tags.split(',').map(tag => `<span class="tag" title="Filter by tag">${tag.trim()}</span>`).join('')}
-                    </div>
-                ` : ''}
-                <div class="entry-actions">
-                    <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
-                        <i class="fas fa-edit"></i>
-                        Edit
-                    </button>
-                    <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
-                        <i class="fas fa-trash"></i>
-                        Delete
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        // Update the file click handlers to increment view count
-        if ((entry.files && entry.files.length > 0) || entry.file_path) {
-            const fileAttachments = entryElement.querySelectorAll('.file-attachment');
-            fileAttachments.forEach((fileAttachment, index) => {
-                const file = entry.files ? entry.files[index] : { path: entry.file_path };
-                
-                // Open file on click
-                fileAttachment.addEventListener('click', async (e) => {
-                    if (!e.target.closest('.download-btn')) {
-                        try {
-                            await window.api.openFile(file.path);
-                            // Increment view count when file is opened
-                            await window.api.incrementViewCount(entry.id);
-                            // Update the view count display
-                            const viewCountElement = entryElement.querySelector('.metadata-item[title^="Viewed"]');
-                            if (viewCountElement) {
-                                const currentCount = parseInt(viewCountElement.textContent) || 0;
-                                viewCountElement.textContent = currentCount + 1;
-                                viewCountElement.title = `Viewed ${currentCount + 1} times`;
-                            }
-                        } catch (error) {
-                            console.error('Error opening file:', error);
-                            showNotification('Failed to open file', 'error');
-                        }
-                    }
-                });
-
-                // Download file on download button click
-                const downloadBtn = fileAttachment.querySelector('.download-btn');
-                if (downloadBtn) {
-                    downloadBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        try {
-                            await window.api.downloadFile(file.path);
-                            // Increment view count when file is downloaded
-                            await window.api.incrementViewCount(entry.id);
-                            // Update the view count display
-                            const viewCountElement = entryElement.querySelector('.metadata-item[title^="Viewed"]');
-                            if (viewCountElement) {
-                                const currentCount = parseInt(viewCountElement.textContent) || 0;
-                                viewCountElement.textContent = currentCount + 1;
-                                viewCountElement.title = `Viewed ${currentCount + 1} times`;
-                            }
-                            showNotification('File download started', 'success');
-                        } catch (error) {
-                            console.error('Error downloading file:', error);
-                            showNotification('Failed to download file', 'error');
-                        }
-                    });
-                }
-            });
-        }
-        
-        // Update the rating stars display in renderEntries
-        const ratingSection = entryElement.querySelector('.rating-section');
-        if (ratingSection) {
-            window.api.getUserRating(entry.id).then(userRating => {
-                ratingSection.innerHTML = renderStars(entry.id, userRating);
-                
-                // Add click handlers to the stars
-                const stars = ratingSection.querySelectorAll('.star');
-                stars.forEach(star => {
-                    star.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        const rating = parseInt(star.dataset.rating);
-                        try {
-                            await window.api.addRating({
-                                entry_id: entry.id,
-                                value: rating
-                            });
-                            
-                            // Update the stars visually
-                            stars.forEach((s, index) => {
-                                s.classList.toggle('active', index < rating);
-                            });
-                            
-                            showNotification('Rating saved successfully', 'success');
-                        } catch (error) {
-                            console.error('Error saving rating:', error);
-                            showNotification('Error saving rating', 'error');
-                        }
-                    });
-                });
-            });
-        }
-        
-        // Add edit button handler
-        const editBtn = entryElement.querySelector('.edit-btn');
-        if (editBtn) {
-            editBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                showModal(entry);
-            });
-        }
-        
-        // Add delete button handler
-        const deleteBtn = entryElement.querySelector('.delete-btn');
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
-                    try {
-                        await window.api.deleteEntry(entry.id);
-                        // Reload entries after deletion
-                        entries = await window.api.getEntries(currentCategory);
-                        renderEntries(entries);
-                        // Refresh categories to update counts
-                        await refreshCategories();
-                        showNotification('Entry deleted successfully', 'success');
-                    } catch (error) {
-                        console.error('Error deleting entry:', error);
-                        showNotification('Failed to delete entry', 'error');
-                    }
-                }
-            });
-        }
-        
-        // Add favorite button handler
-        const favoriteBtn = entryElement.querySelector('.favorite-btn');
-        if (favoriteBtn) {
-            favoriteBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                try {
-                    const result = await window.api.toggleFavorite(entry.id);
-                    favoriteBtn.classList.toggle('active', result.isFavorite);
-                    showNotification(
-                        result.isFavorite ? 'Added to favorites' : 'Removed from favorites',
-                        'success'
-                    );
-                } catch (error) {
-                    console.error('Error toggling favorite:', error);
-                    showNotification('Error updating favorites', 'error');
-                }
-            });
-        }
-        
-        // Add the complete entry to the container
+        const entryElement = createEntryElement(entry);
         container.appendChild(entryElement);
     });
 }
@@ -1225,7 +994,7 @@ async function renderDashboard() {
                             try {
                                 await window.api.addRating({
                                     entry_id: entry.dataset.entryId,
-                                    value: rating
+                                    rating: rating
                                 });
                                 
                                 // Update the stars visually
@@ -1435,7 +1204,7 @@ async function hideCategoryModal() {
 
 async function loadCategories() {
     try {
-        categories = await window.electronAPI.loadCategories();
+        categories = await window.api.getCategories();
         updateCategorySelects();
     } catch (error) {
         console.error('Error loading categories:', error);
@@ -1717,4 +1486,236 @@ async function handleEntrySubmit(e) {
         console.error('Error saving entry:', error);
         showNotification(`Error saving entry: ${error.message}`, 'error');
     }
+}
+
+// Create an entry element
+function createEntryElement(entry) {
+    const entryElement = document.createElement('div');
+    entryElement.className = 'entry';
+    entryElement.dataset.entryId = entry.id;
+    
+    // Format dates
+    const createdDate = new Date(entry.created_at);
+    const lastEditDate = new Date(entry.last_edit_at || entry.updated_at);
+    const timeSinceEdit = timeSince(lastEditDate);
+    
+    // Create the entry content
+    entryElement.innerHTML = `
+        <button class="favorite-btn ${entry.is_favorite ? 'active' : ''}" title="Toggle favorite">
+            <i class="fas fa-star"></i>
+        </button>
+        <div class="entry-header">
+            <div class="entry-title">
+                <h4>${entry.category_name || 'Entry'}</h4>
+                <h3>${entry.title}</h3>
+            </div>
+            <div class="entry-metadata">
+                <span class="metadata-item" title="Created on ${createdDate.toLocaleDateString()}">
+                    <i class="fas fa-calendar-plus"></i>
+                    ${createdDate.toLocaleDateString()}
+                </span>
+                <span class="metadata-item" title="Last edited ${lastEditDate.toLocaleString()}">
+                    <i class="fas fa-clock"></i>
+                    ${timeSinceEdit}
+                </span>
+                <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
+                    <i class="fas fa-eye"></i>
+                    ${entry.view_count || 0}
+                </span>
+            </div>
+        </div>
+        <div class="entry-content">
+            ${entry.description ? `
+                <div class="entry-section">
+                    <h4><i class="fas fa-align-left"></i> Description</h4>
+                    <p>${entry.description}</p>
+                </div>
+            ` : ''}
+            ${entry.wisdom ? `
+                <div class="entry-section">
+                    <h4><i class="fas fa-lightbulb"></i> Wisdom</h4>
+                    <p>${entry.wisdom}</p>
+                </div>
+            ` : ''}
+            ${(entry.files && entry.files.length > 0) || entry.file_path ? `
+                <div class="entry-section">
+                    <h4><i class="fas fa-paperclip"></i> Files</h4>
+                    <div class="files-list">
+                        ${entry.files ? entry.files.map(file => `
+                            <div class="file-attachment" title="Click to open file">
+                                <i class="fas fa-file"></i>
+                                <span class="file-name">${file.name || file.path.split('/').pop()}</span>
+                                <div class="file-actions">
+                                    <button class="download-btn" title="Download file">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('') : `
+                            <div class="file-attachment" title="Click to open file">
+                                <i class="fas fa-file"></i>
+                                <span class="file-name">${entry.file_path.split('/').pop()}</span>
+                                <div class="file-actions">
+                                    <button class="download-btn" title="Download file">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+        <div class="entry-footer">
+            <div class="rating-section">
+                ${renderStars(entry.id, 0)}
+            </div>
+            ${entry.tags ? `
+                <div class="tags">
+                    ${entry.tags.split(',').map(tag => `<span class="tag" title="Filter by tag">${tag.trim()}</span>`).join('')}
+                </div>
+            ` : ''}
+            <div class="entry-actions">
+                <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
+                    <i class="fas fa-edit"></i>
+                    Edit
+                </button>
+                <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
+                    <i class="fas fa-trash"></i>
+                    Delete
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Add event listeners for the entry card
+    
+    // Add click handler for favorite button
+    const favoriteBtn = entryElement.querySelector('.favorite-btn');
+    if (favoriteBtn) {
+        favoriteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                const result = await window.api.toggleFavorite(entry.id);
+                favoriteBtn.classList.toggle('active', result.isFavorite);
+                showNotification(
+                    result.isFavorite ? 'Added to favorites' : 'Removed from favorites',
+                    'success'
+                );
+            } catch (error) {
+                console.error('Error toggling favorite:', error);
+                showNotification('Error updating favorites', 'error');
+            }
+        });
+    }
+
+    // Add click handler for edit button
+    const editBtn = entryElement.querySelector('.edit-btn');
+    if (editBtn) {
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showModal(entry);
+        });
+    }
+
+    // Add click handler for delete button
+    const deleteBtn = entryElement.querySelector('.delete-btn');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
+                try {
+                    await window.api.deleteEntry(entry.id);
+                    // Reload entries after deletion
+                    entries = await window.api.getEntries(currentCategory);
+                    renderEntries(entries);
+                    // Refresh categories to update counts
+                    await refreshCategories();
+                    showNotification('Entry deleted successfully', 'success');
+                } catch (error) {
+                    console.error('Error deleting entry:', error);
+                    showNotification('Failed to delete entry', 'error');
+                }
+            }
+        });
+    }
+
+    // Add handlers for file attachments
+    if ((entry.files && entry.files.length > 0) || entry.file_path) {
+        const fileAttachments = entryElement.querySelectorAll('.file-attachment');
+        fileAttachments.forEach((fileAttachment, index) => {
+            const file = entry.files ? entry.files[index] : { path: entry.file_path };
+            
+            // Open file on click
+            fileAttachment.addEventListener('click', async (e) => {
+                if (!e.target.closest('.download-btn')) {
+                    try {
+                        await window.api.openFile(file.path);
+                        // Increment view count when file is opened
+                        await window.api.incrementViewCount(entry.id);
+                        // Update the view count display
+                        const viewCountElement = entryElement.querySelector('.metadata-item[title^="Viewed"]');
+                        if (viewCountElement) {
+                            const currentCount = parseInt(viewCountElement.textContent) || 0;
+                            viewCountElement.textContent = currentCount + 1;
+                            viewCountElement.title = `Viewed ${currentCount + 1} times`;
+                        }
+                    } catch (error) {
+                        console.error('Error opening file:', error);
+                        showNotification('Failed to open file', 'error');
+                    }
+                }
+            });
+
+            // Download file on download button click
+            const downloadBtn = fileAttachment.querySelector('.download-btn');
+            if (downloadBtn) {
+                downloadBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    try {
+                        await window.api.downloadFile(file.path);
+                        showNotification('File download started', 'success');
+                    } catch (error) {
+                        console.error('Error downloading file:', error);
+                        showNotification('Failed to download file', 'error');
+                    }
+                });
+            }
+        });
+    }
+
+    // Add handlers for rating stars
+    const ratingSection = entryElement.querySelector('.rating-section');
+    if (ratingSection) {
+        window.api.getUserRating(entry.id).then(userRating => {
+            ratingSection.innerHTML = renderStars(entry.id, userRating);
+            
+            // Add click handlers to the stars
+            const stars = ratingSection.querySelectorAll('.star');
+            stars.forEach(star => {
+                star.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const rating = parseInt(star.dataset.rating);
+                    try {
+                        await window.api.addRating({
+                            entry_id: entry.id,
+                            rating: rating
+                        });
+                        
+                        // Update the stars visually
+                        stars.forEach((s, index) => {
+                            s.classList.toggle('active', index < rating);
+                        });
+                        
+                        showNotification('Rating saved successfully', 'success');
+                    } catch (error) {
+                        console.error('Error saving rating:', error);
+                        showNotification('Error saving rating', 'error');
+                    }
+                });
+            });
+        });
+    }
+
+    return entryElement;
 } 

@@ -308,7 +308,7 @@ async function initializeApp() {
           id TEXT PRIMARY KEY,
           entry_id TEXT,
           device_id TEXT,
-          value INTEGER CHECK (value >= 1 AND value <= 5),
+          rating INTEGER CHECK (rating >= 1 AND rating <= 5),
           comment TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (entry_id) REFERENCES entries(id)
@@ -487,7 +487,7 @@ ipcMain.handle('get-entries', (event, categoryId) => {
 
     db.all(`
       SELECT e.*, c.name as category_name,
-        (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating,
+        (SELECT AVG(rating) FROM ratings WHERE entry_id = e.id) as rating,
         (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
         (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
          FROM entry_files ef
@@ -804,15 +804,21 @@ ipcMain.handle('open-file', (event, filePath) => {
       return;
     }
 
-    const fullPath = path.join(app.getAppPath(), 'files', filePath);
+    const fullPath = path.join(app.getPath('userData'), 'files', filePath);
+    console.log('Attempting to open file:', fullPath);
+    
     if (!fs.existsSync(fullPath)) {
+      console.error('File not found:', fullPath);
       reject(new Error('File not found'));
       return;
     }
 
     shell.openPath(fullPath)
       .then(() => resolve({ success: true }))
-      .catch(err => reject(err));
+      .catch(err => {
+        console.error('Error opening file:', err);
+        reject(err);
+      });
   });
 });
 
@@ -843,14 +849,14 @@ ipcMain.handle('get-user-rating', (event, entryId) => {
     }
 
     db.get(
-      'SELECT value FROM ratings WHERE entry_id = ? AND device_id = ?',
+      'SELECT rating FROM ratings WHERE entry_id = ? AND device_id = ?',
       [entryId, config.deviceId],
       (err, row) => {
         if (err) {
           console.error('Error getting user rating:', err);
           reject(err);
         } else {
-          resolve(row ? row.value : null);
+          resolve(row ? row.rating : null);
         }
       }
     );
@@ -860,7 +866,7 @@ ipcMain.handle('get-user-rating', (event, entryId) => {
 // Update the add-rating handler to handle rating updates
 ipcMain.handle('add-rating', (event, rating) => {
   return new Promise((resolve, reject) => {
-    if (!rating || !rating.entry_id || !rating.value) {
+    if (!rating || !rating.entry_id || !rating.rating) {
       reject(new Error('Invalid rating data'));
       return;
     }
@@ -879,14 +885,14 @@ ipcMain.handle('add-rating', (event, rating) => {
         if (row) {
           // Update existing rating
           db.run(
-            'UPDATE ratings SET value = ?, created_at = ? WHERE id = ?',
-            [rating.value, new Date().toISOString(), row.id],
+            'UPDATE ratings SET rating = ?, created_at = ? WHERE id = ?',
+            [rating.rating, new Date().toISOString(), row.id],
             function(err) {
               if (err) {
                 console.error('Error updating rating:', err);
                 reject(err);
               } else {
-                resolve({ id: row.id, entry_id: rating.entry_id, value: rating.value });
+                resolve({ id: row.id, entry_id: rating.entry_id, rating: rating.rating });
               }
             }
           );
@@ -894,14 +900,14 @@ ipcMain.handle('add-rating', (event, rating) => {
           // Add new rating
           const id = uuidv4();
           db.run(
-            'INSERT INTO ratings (id, entry_id, device_id, value, created_at) VALUES (?, ?, ?, ?, ?)',
-            [id, rating.entry_id, config.deviceId, rating.value, new Date().toISOString()],
+            'INSERT INTO ratings (id, entry_id, device_id, rating, created_at) VALUES (?, ?, ?, ?, ?)',
+            [id, rating.entry_id, config.deviceId, rating.rating, new Date().toISOString()],
             function(err) {
               if (err) {
                 console.error('Error adding rating:', err);
                 reject(err);
               } else {
-                resolve({ id, entry_id: rating.entry_id, value: rating.value });
+                resolve({ id, entry_id: rating.entry_id, rating: rating.rating });
               }
             }
           );
@@ -1035,9 +1041,9 @@ ipcMain.handle('import-data', (event, data) => {
       entryStmt.finalize();
 
       // Import ratings
-      const ratingStmt = db.prepare('INSERT INTO ratings (id, entry_id, value, comment, created_at) VALUES (?, ?, ?, ?, ?)');
+      const ratingStmt = db.prepare('INSERT INTO ratings (id, entry_id, rating, comment, created_at) VALUES (?, ?, ?, ?, ?)');
       data.ratings.forEach(rating => {
-        ratingStmt.run(rating.id, rating.entry_id, rating.value, rating.comment, rating.created_at);
+        ratingStmt.run(rating.id, rating.entry_id, rating.rating, rating.comment, rating.created_at);
       });
       ratingStmt.finalize();
 
@@ -1074,8 +1080,11 @@ ipcMain.handle('get-app-info', () => {
 
 ipcMain.handle('download-file', async (event, filePath) => {
   try {
-    const fullPath = path.join(app.getAppPath(), 'files', filePath);
+    const fullPath = path.join(app.getPath('userData'), 'files', filePath);
+    console.log('Attempting to download file:', fullPath);
+    
     if (!fs.existsSync(fullPath)) {
+      console.error('File not found:', fullPath);
       throw new Error('File not found');
     }
 
@@ -1173,7 +1182,7 @@ ipcMain.handle('get-dashboard-data', () => {
             // Get favorited entries
             db.all(`
                 SELECT e.*, c.name as category_name,
-                    (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating,
+                    (SELECT AVG(rating) FROM ratings WHERE entry_id = e.id) as rating,
                     (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
                     (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
                      FROM entry_files ef
@@ -1206,7 +1215,7 @@ ipcMain.handle('get-dashboard-data', () => {
                 // Get recent entries
                 db.all(`
                     SELECT e.*, c.name as category_name,
-                        (SELECT AVG(value) FROM ratings WHERE entry_id = e.id) as rating,
+                        (SELECT AVG(rating) FROM ratings WHERE entry_id = e.id) as rating,
                         (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
                         (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
                          FROM entry_files ef
