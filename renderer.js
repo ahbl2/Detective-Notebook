@@ -460,36 +460,108 @@ async function handleStarClick(star) {
 
 // Render entries in the main content area
 function renderEntries(entriesToRender = entries) {
-    console.log('Rendering entries:', entriesToRender);
-    const container = document.querySelector('.entries-container');
+    const entriesContainer = document.querySelector('.entries-container');
+    if (!entriesContainer) return;
+
+    // Clear the container
+    entriesContainer.innerHTML = '';
+
+    // Create a wrapper for sort controls and grid
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'content-wrapper';
+    entriesContainer.appendChild(contentWrapper);
+
+    // Add sort controls if there are entries to sort
+    if (entriesToRender && entriesToRender.length > 0) {
+        const sortControls = document.createElement('div');
+        sortControls.className = 'sort-controls';
+        sortControls.innerHTML = `
+            <span class="sort-label">Sort by:</span>
+            <select class="sort-select" id="entrySortSelect">
+                <option value="title">Title (A-Z)</option>
+                <option value="titleDesc">Title (Z-A)</option>
+                <option value="dateCreated">Date Created (Newest)</option>
+                <option value="dateCreatedAsc">Date Created (Oldest)</option>
+                <option value="dateModified">Last Modified (Newest)</option>
+                <option value="dateModifiedAsc">Last Modified (Oldest)</option>
+                <option value="rating">Rating (Highest)</option>
+                <option value="ratingAsc">Rating (Lowest)</option>
+            </select>
+        `;
+        contentWrapper.appendChild(sortControls);
+    }
+
+    // Create a container for the entries grid
+    const entriesGrid = document.createElement('div');
+    entriesGrid.className = 'entries-grid';
+    contentWrapper.appendChild(entriesGrid);
+
+    // Initial render with default sort (alphabetical by title)
+    const sortedEntries = sortEntries(entriesToRender || [], 'title');
+    renderEntriesList(sortedEntries);
+
+    // Add sort change listener after elements are in the DOM
+    const sortSelect = document.getElementById('entrySortSelect');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+            const sortedEntries = sortEntries(entriesToRender || [], sortSelect.value);
+            renderEntriesList(sortedEntries);
+        });
+    }
+}
+
+// Function to sort entries based on selected criteria
+function sortEntries(entries, sortBy) {
+    if (!Array.isArray(entries)) return [];
     
-    if (!entriesToRender || entriesToRender.length === 0) {
-        container.innerHTML = `
+    return [...entries].sort((a, b) => {
+        switch (sortBy) {
+            case 'title':
+                return a.title.localeCompare(b.title);
+            case 'titleDesc':
+                return b.title.localeCompare(a.title);
+            case 'dateCreated':
+                return new Date(b.created_at) - new Date(a.created_at);
+            case 'dateCreatedAsc':
+                return new Date(a.created_at) - new Date(b.created_at);
+            case 'dateModified':
+                return new Date(b.updated_at) - new Date(a.updated_at);
+            case 'dateModifiedAsc':
+                return new Date(a.updated_at) - new Date(b.updated_at);
+            case 'rating':
+                return (b.rating || 0) - (a.rating || 0);
+            case 'ratingAsc':
+                return (a.rating || 0) - (b.rating || 0);
+            default:
+                return a.title.localeCompare(b.title);
+        }
+    });
+}
+
+// Function to render just the entries list (without recreating sort controls)
+function renderEntriesList(sortedEntries) {
+    const entriesGrid = document.querySelector('.entries-grid');
+    if (!entriesGrid) return;
+
+    entriesGrid.innerHTML = '';
+
+    if (!sortedEntries || sortedEntries.length === 0) {
+        entriesGrid.innerHTML = `
             <div class="no-entries">
-                <i class="fas fa-clipboard-list"></i>
-                <p>No entries found in this category.</p>
-                <button class="add-entry-btn">
+                <i class="fas fa-inbox"></i>
+                <p>No entries found</p>
+                <button class="add-entry-btn" onclick="showModal()">
                     <i class="fas fa-plus"></i>
                     Add Entry
                 </button>
             </div>
         `;
-        
-        // Add click event listener to the Add Entry button
-        const addEntryBtn = container.querySelector('.add-entry-btn');
-        if (addEntryBtn) {
-            addEntryBtn.addEventListener('click', () => showModal());
-        }
         return;
     }
-    
-    // Clear the container
-    container.innerHTML = '';
-    
-    // Create and append each entry element
-    entriesToRender.forEach(entry => {
+
+    sortedEntries.forEach(entry => {
         const entryElement = createEntryElement(entry);
-        container.appendChild(entryElement);
+        entriesGrid.appendChild(entryElement);
     });
 }
 
