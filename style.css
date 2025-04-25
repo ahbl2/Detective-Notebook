@@ -1223,11 +1223,11 @@ body {
 }
 
 .dashboard-section {
-    margin-bottom: 30px;
     background: white;
     border-radius: 12px;
     padding: 20px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 24px;
 }
 
 .dashboard-section h2 {
@@ -1245,20 +1245,41 @@ body {
     color: #3498db;
 }
 
-/* Favorites grid */
+/* Use the same grid layout as the categories page */
 .favorites-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+    gap: 1rem;
+    padding: 1rem;
+    max-width: 1200px;
+    margin: 0 auto;
 }
 
-/* Lists container */
+/* Use the same entry styles as the categories page */
+.favorites-grid .entry {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 12px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    position: relative;
+    padding-top: 12px;
+}
+
+.favorites-grid .entry:hover {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Dashboard lists section */
 .dashboard-lists {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
 }
 
+/* Responsive adjustments */
 @media (max-width: 768px) {
     .dashboard-lists {
         grid-template-columns: 1fr;
