@@ -343,9 +343,9 @@ function setupEventListeners() {
     // Form submission
     entryForm.addEventListener('submit', handleEntrySubmit);
 
-    // Export/Import buttons
-    document.querySelector('.export-btn').addEventListener('click', handleExport);
-    document.querySelector('.import-btn').addEventListener('click', handleImport);
+    // Listen for export/import events from the menu
+    window.api.receive('export-data', handleExport);
+    window.api.receive('import-data', handleImport);
 }
 
 // Render categories in the sidebar
@@ -754,9 +754,55 @@ function showModal(entry = null) {
     entryForm.reset();
     pendingFiles = [];
     
-    // Update modal title
+    // Update modal title and add delete button if editing
     const modalTitle = entryModal.querySelector('h2');
     modalTitle.textContent = entry ? 'Edit Entry' : 'Add New Entry';
+    
+    // Update form actions
+    const formActions = entryModal.querySelector('.form-actions');
+    formActions.innerHTML = `
+        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" class="btn btn-secondary cancel-btn">Cancel</button>
+        ${entry ? `
+            <button type="button" class="btn btn-danger delete-btn">
+                <i class="fas fa-trash"></i>
+                Delete Entry
+            </button>
+        ` : ''}
+    `;
+    
+    // Add event listeners for the new buttons
+    formActions.querySelector('.cancel-btn').addEventListener('click', () => {
+        entryModal.style.display = 'none';
+        entryForm.reset();
+    });
+    
+    if (entry) {
+        const deleteBtn = formActions.querySelector('.delete-btn');
+        deleteBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
+                try {
+                    await window.api.deleteEntry(entry.id);
+                    entryModal.style.display = 'none';
+                    
+                    // Refresh the view
+                    if (currentCategory) {
+                        entries = await window.api.getEntries(currentCategory);
+                        renderEntries(entries);
+                    } else {
+                        await renderDashboard();
+                    }
+                    
+                    // Refresh categories to update counts
+                    await refreshCategories();
+                    showNotification('Entry deleted successfully', 'success');
+                } catch (error) {
+                    console.error('Error deleting entry:', error);
+                    showNotification('Failed to delete entry', 'error');
+                }
+            }
+        });
+    }
     
     // Remove any existing file info
     const existingFileInfo = entryModal.querySelector('.current-file-info');
@@ -898,51 +944,88 @@ function updateFileDisplay() {
 // Handle export
 async function handleExport() {
     try {
-        await window.api.exportData({
-            format: 'zip',
-            includeFiles: true
+        const result = await window.api.exportData({
+            includeFiles: true // Always include files for now - could make this configurable in settings
         });
         
-        // Update last merged date
-        config.lastMerged = new Date().toISOString();
-        await window.api.updateConfig(config);
-        
-        alert('Export completed successfully!');
+        if (result && result.success) {
+            // Update last merged date
+            config.lastMerged = new Date().toISOString();
+            await window.api.updateConfig(config);
+            
+            showNotification('Export completed successfully!', 'success');
+        }
     } catch (error) {
-        console.error('Error exporting data:', error);
+        console.error('Error in export process:', error);
+        let errorMessage = 'Failed to export data';
+        
+        // Provide more specific error messages
+        if (error.code === 'EACCES') {
+            errorMessage = 'Permission denied. Please choose a different location.';
+        } else if (error.code === 'ENOSPC') {
+            errorMessage = 'Not enough disk space for the export.';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        
+        showNotification(errorMessage, 'error');
     }
 }
 
 // Handle import
 async function handleImport() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.zip';
-    
-    input.onchange = async (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            try {
-                await window.api.importData(file);
-                
-                // Update last merged date
-                config.lastMerged = new Date().toISOString();
-                await window.api.updateConfig(config);
-                
-                alert('Import completed successfully!');
-                // Refresh the view
-                const categories = await window.api.getCategories();
-                renderCategories(categories);
-                if (currentCategory) {
-                    loadEntries(currentCategory);
-                }
-            } catch (error) {
-                console.error('Error importing data:', error);
+    try {
+        const result = await window.api.importData();
+        
+        if (result.cancelled) {
+            // Import was cancelled by user, just return silently
+            return;
+        }
+        
+        if (result && result.success) {
+            // Update last merged date
+            config.lastMerged = new Date().toISOString();
+            await window.api.updateConfig(config);
+            
+            showNotification('Import completed successfully!', 'success');
+ 
+            // Refresh the view
+            const categories = await window.api.getCategories();
+            renderCategories(categories);
+            if (currentCategory) {
+                await loadEntries(currentCategory);
+            } else {
+                await renderDashboard();
+            }
+            
+            // Show import summary if provided
+            if (result.summary) {
+                showNotification(
+                    `Imported: ${result.summary.categories} categories, ` +
+                    `${result.summary.entries} entries, ` +
+                    `${result.summary.files || 0} files`,
+                    'info',
+                    8000 // Show for 8 seconds
+                );
             }
         }
-    };
-    
-    input.click();
+    } catch (error) {
+        console.error('Error in import process:', error);
+        let errorMessage = 'Failed to import data';
+        
+        // Provide more specific error messages
+        if (error.code === 'EACCES') {
+            errorMessage = 'Permission denied. Cannot access the import file.';
+        } else if (error.code === 'INVALID_FORMAT') {
+            errorMessage = 'Invalid import file format. Please select a valid export file.';
+        } else if (error.code === 'DATABASE_ERROR') {
+            errorMessage = 'Database error during import. Your data is unchanged.';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        
+        showNotification(errorMessage, 'error');
+    }
 }
 
 // Utility function for debouncing
@@ -1124,10 +1207,6 @@ async function renderDashboard() {
                                                 <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
                                                     <i class="fas fa-edit"></i>
                                                     Edit
-                                                </button>
-                                                <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
-                                                    <i class="fas fa-trash"></i>
-                                                    Delete
                                                 </button>
                                             </div>
                                         </div>
@@ -1531,10 +1610,6 @@ async function renderDashboard() {
                                             <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
                                                 <i class="fas fa-edit"></i>
                                                 Edit
-                                            </button>
-                                            <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
-                                                <i class="fas fa-trash"></i>
-                                                Delete
                                             </button>
                                         </div>
                                     </div>
@@ -2081,7 +2156,7 @@ function createEntryElement(entry) {
                                     </button>
                                 </div>
                             </div>
-                        `).join('') : `
+                        `).join('') : entry.file_path ? `
                             <div class="file-attachment" title="Click to open file">
                                 <i class="fas fa-file"></i>
                                 <span class="file-name">${entry.file_path.split('/').pop()}</span>
@@ -2091,14 +2166,14 @@ function createEntryElement(entry) {
                                     </button>
                                 </div>
                             </div>
-                        `}
+                        ` : ''}
                     </div>
                 </div>
             ` : ''}
         </div>
         <div class="entry-footer">
             <div class="rating-section">
-                ${renderStars(entry.id, 0)}
+                ${renderStars(entry.id, entry.rating || 0)}
             </div>
             ${entry.tags ? `
                 <div class="tags">
@@ -2109,10 +2184,6 @@ function createEntryElement(entry) {
                 <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
                     <i class="fas fa-edit"></i>
                     Edit
-                </button>
-                <button class="delete-btn" data-entry-id="${entry.id}" title="Delete entry">
-                    <i class="fas fa-trash"></i>
-                    Delete
                 </button>
             </div>
         </div>
@@ -2158,28 +2229,6 @@ function createEntryElement(entry) {
         });
     }
 
-    // Add click handler for delete button
-    const deleteBtn = entryElement.querySelector('.delete-btn');
-    if (deleteBtn) {
-        deleteBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
-                try {
-                    await window.api.deleteEntry(entry.id);
-                    // Reload entries after deletion
-                    entries = await window.api.getEntries(currentCategory);
-                    renderEntries(entries);
-                    // Refresh categories to update counts
-                    await refreshCategories();
-                    showNotification('Entry deleted successfully', 'success');
-                } catch (error) {
-                    console.error('Error deleting entry:', error);
-                    showNotification('Failed to delete entry', 'error');
-                }
-            }
-        });
-    }
-
     // Add handlers for file attachments
     if ((entry.files && entry.files.length > 0) || entry.file_path) {
         const fileAttachments = entryElement.querySelectorAll('.file-attachment');
@@ -2221,39 +2270,6 @@ function createEntryElement(entry) {
                     }
                 });
             }
-        });
-    }
-
-    // Add handlers for rating stars
-    const ratingSection = entryElement.querySelector('.rating-section');
-    if (ratingSection) {
-        window.api.getUserRating(entry.id).then(userRating => {
-            ratingSection.innerHTML = renderStars(entry.id, userRating);
-            
-            // Add click handlers to the stars
-            const stars = ratingSection.querySelectorAll('.star');
-            stars.forEach(star => {
-                star.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const rating = parseInt(star.dataset.rating);
-                    try {
-                        await window.api.addRating({
-                            entry_id: entry.id,
-                            rating: rating
-                        });
-                        
-                        // Update the stars visually
-                        stars.forEach((s, index) => {
-                            s.classList.toggle('active', index < rating);
-                        });
-                        
-                        showNotification('Rating saved successfully', 'success');
-                    } catch (error) {
-                        console.error('Error saving rating:', error);
-                        showNotification('Error saving rating', 'error');
-                    }
-                });
-            });
         });
     }
 

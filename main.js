@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const { v4: uuidv4 } = require('uuid');
+const archiver = require('archiver');
+const extract = require('extract-zip');
 
 // Keep a global reference of the window object and database connection
 let mainWindow;
@@ -1003,114 +1005,202 @@ ipcMain.handle('add-comment', (event, comment) => {
   });
 });
 
-ipcMain.handle('export-data', (event, options) => {
-  return new Promise((resolve, reject) => {
-    const exportData = {
-      categories: [],
-      entries: [],
-      ratings: [],
-      comments: []
-    };
+ipcMain.handle('export-data', async (event, options) => {
+    try {
+        const exportData = {
+            categories: [],
+            entries: [],
+            ratings: [],
+            comments: []
+        };
 
-    // Export categories
-    db.all('SELECT * FROM categories', [], (err, categories) => {
-      if (err) {
-        console.error('Error exporting categories:', err);
-        reject(err);
-        return;
-      }
-      exportData.categories = categories;
+        // Get all data from database
+        const [categories, entries, ratings, comments] = await Promise.all([
+            new Promise((resolve, reject) => {
+                db.all('SELECT * FROM categories', [], (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows || []);
+                });
+            }),
+            new Promise((resolve, reject) => {
+                db.all('SELECT * FROM entries', [], (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows || []);
+                });
+            }),
+            new Promise((resolve, reject) => {
+                db.all('SELECT * FROM ratings', [], (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows || []);
+                });
+            }),
+            new Promise((resolve, reject) => {
+                db.all('SELECT * FROM comments', [], (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows || []);
+                });
+            })
+        ]);
 
-      // Export entries
-      db.all('SELECT * FROM entries', [], (err, entries) => {
-        if (err) {
-          console.error('Error exporting entries:', err);
-          reject(err);
-          return;
-        }
+        exportData.categories = categories;
         exportData.entries = entries;
+        exportData.ratings = ratings;
+        exportData.comments = comments;
 
-        // Export ratings
-        db.all('SELECT * FROM ratings', [], (err, ratings) => {
-          if (err) {
-            console.error('Error exporting ratings:', err);
-            reject(err);
-            return;
-          }
-          exportData.ratings = ratings;
+        // Save to file
+        const { dialog } = require('electron');
+        const path = require('path');
+        const fs = require('fs');
+        const archiver = require('archiver');
 
-          // Export comments
-          db.all('SELECT * FROM comments', [], (err, comments) => {
-            if (err) {
-              console.error('Error exporting comments:', err);
-              reject(err);
-              return;
-            }
-            exportData.comments = comments;
-
-            resolve(exportData);
-          });
+        const { filePath } = await dialog.showSaveDialog({
+            title: 'Export Data',
+            defaultPath: path.join(app.getPath('downloads'), 'digital-detective-export.zip'),
+            filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
         });
-      });
-    });
-  });
+
+        if (!filePath) {
+            throw new Error('Export cancelled');
+        }
+
+        // Create zip file
+        const output = fs.createWriteStream(filePath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        return new Promise((resolve, reject) => {
+            output.on('close', () => {
+                resolve({ success: true });
+            });
+
+            archive.on('error', (err) => {
+                reject(err);
+            });
+
+            archive.pipe(output);
+
+            // Add the data as JSON
+            archive.append(JSON.stringify(exportData, null, 2), { name: 'data.json' });
+
+            // Add files if requested
+            if (options.includeFiles) {
+                const filesDir = path.join(app.getPath('userData'), 'files');
+                if (fs.existsSync(filesDir)) {
+                    archive.directory(filesDir, 'files');
+                }
+            }
+
+            archive.finalize();
+        });
+    } catch (error) {
+        console.error('Export error:', error);
+        throw error;
+    }
 });
 
-ipcMain.handle('import-data', (event, data) => {
-  return new Promise((resolve, reject) => {
-    if (!data || !Array.isArray(data.categories)) {
-      reject(new Error('Invalid import data'));
-      return;
-    }
+ipcMain.handle('import-data', async (event, options) => {
+    try {
+        const { dialog } = require('electron');
+        const path = require('path');
+        const fs = require('fs');
+        const extract = require('extract-zip');
 
-    // Start a transaction
-    db.run('BEGIN TRANSACTION', (err) => {
-      if (err) {
-        console.error('Error starting transaction:', err);
-        reject(err);
-        return;
-      }
+        const { filePaths } = await dialog.showOpenDialog({
+            title: 'Import Data',
+            filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+            properties: ['openFile']
+        });
 
-      // Import categories
-      const categoryStmt = db.prepare('INSERT INTO categories (id, name, created_at) VALUES (?, ?, ?)');
-      data.categories.forEach(category => {
-        categoryStmt.run(category.id, category.name, category.created_at);
-      });
-      categoryStmt.finalize();
-
-      // Import entries
-      const entryStmt = db.prepare('INSERT INTO entries (id, title, description, category_id, file_path, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-      data.entries.forEach(entry => {
-        entryStmt.run(entry.id, entry.title, entry.description, entry.category_id, entry.file_path, entry.created_at);
-      });
-      entryStmt.finalize();
-
-      // Import ratings
-      const ratingStmt = db.prepare('INSERT INTO ratings (id, entry_id, rating, comment, created_at) VALUES (?, ?, ?, ?, ?)');
-      data.ratings.forEach(rating => {
-        ratingStmt.run(rating.id, rating.entry_id, rating.rating, rating.comment, rating.created_at);
-      });
-      ratingStmt.finalize();
-
-      // Import comments
-      const commentStmt = db.prepare('INSERT INTO comments (id, entry_id, text, created_at) VALUES (?, ?, ?, ?)');
-      data.comments.forEach(comment => {
-        commentStmt.run(comment.id, comment.entry_id, comment.text, comment.created_at);
-      });
-      commentStmt.finalize();
-
-      // Commit the transaction
-      db.run('COMMIT', (err) => {
-        if (err) {
-          console.error('Error committing transaction:', err);
-          db.run('ROLLBACK');
-          reject(err);
-        } else {
-          resolve({ success: true });
+        if (!filePaths || filePaths.length === 0) {
+            return { cancelled: true };  // Return cancelled status instead of throwing error
         }
-      });
-    });
-  });
+
+        const importPath = filePaths[0];
+        const tempDir = path.join(app.getPath('temp'), 'digital-detective-import');
+
+        // Clean up temp directory if it exists
+        if (fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true });
+        }
+        fs.mkdirSync(tempDir);
+
+        // Extract the zip file
+        await extract(importPath, { dir: tempDir });
+
+        // Read the data file
+        const dataFile = path.join(tempDir, 'data.json');
+        if (!fs.existsSync(dataFile)) {
+            throw new Error('Invalid import file: missing data.json');
+        }
+
+        const importData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+
+        // Start a transaction
+        await new Promise((resolve, reject) => {
+            db.run('BEGIN TRANSACTION', (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        try {
+            // Import categories
+            for (const category of importData.categories) {
+                await new Promise((resolve, reject) => {
+                    db.run(
+                        'INSERT OR REPLACE INTO categories (id, name, color, icon) VALUES (?, ?, ?, ?)',
+                        [category.id, category.name, category.color, category.icon],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        }
+                    );
+                });
+            }
+
+            // Import entries
+            for (const entry of importData.entries) {
+                await new Promise((resolve, reject) => {
+                    db.run(
+                        'INSERT OR REPLACE INTO entries (id, title, description, wisdom, category_id, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                        [entry.id, entry.title, entry.description, entry.wisdom, entry.category_id, entry.tags, entry.created_at, entry.updated_at],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        }
+                    );
+                });
+            }
+
+            // Import files if they exist
+            const importFilesDir = path.join(tempDir, 'files');
+            if (fs.existsSync(importFilesDir)) {
+                const filesDir = path.join(app.getPath('userData'), 'files');
+                fs.cpSync(importFilesDir, filesDir, { recursive: true });
+            }
+
+            // Commit transaction
+            await new Promise((resolve, reject) => {
+                db.run('COMMIT', (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+
+            // Clean up
+            fs.rmSync(tempDir, { recursive: true });
+
+            return { success: true };
+        } catch (error) {
+            // Rollback on error
+            await new Promise((resolve) => {
+                db.run('ROLLBACK', () => resolve());
+            });
+            throw error;
+        }
+    } catch (error) {
+        console.error('Import error:', error);
+        throw error;
+    }
 });
 
 ipcMain.handle('get-app-info', () => {

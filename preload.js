@@ -16,7 +16,14 @@ contextBridge.exposeInMainWorld(
     
     // Event listeners
     receive: (channel, func) => {
-        if (channel === 'show-category-settings') {
+        // List of allowed channels
+        const validChannels = [
+            'show-category-settings',
+            'export-data',
+            'import-data'
+        ];
+        
+        if (validChannels.includes(channel)) {
             ipcRenderer.on(channel, (event, ...args) => func(...args));
         }
     },
