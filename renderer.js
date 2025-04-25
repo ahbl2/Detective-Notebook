@@ -1,7 +1,7 @@
 // DOM Elements
 const categoryList = document.querySelector('.category-list');
 const entriesContainer = document.querySelector('.entries-container');
-const searchInput = document.getElementById('search');
+const searchContainer = document.querySelector('.search-container');
 const entryModal = document.getElementById('entry-modal');
 const entryForm = document.getElementById('entry-form');
 const addEntryBtn = document.querySelector('.add-entry-btn');
@@ -187,7 +187,155 @@ function showMergeNotification() {
 // Set up event listeners
 function setupEventListeners() {
     // Search functionality
-    searchInput.addEventListener('input', debounce(handleSearch, 300));
+    const searchInput = document.querySelector('.search-container input');
+    const searchClearBtn = document.querySelector('.search-clear-btn');
+    
+    searchInput.addEventListener('input', debounce(async (e) => {
+        const searchTerm = e.target.value.toLowerCase().trim();
+        searchClearBtn.classList.toggle('visible', searchTerm.length > 0);
+        
+        if (!searchTerm) {
+            // If search is cleared, return to normal view
+            if (!currentCategory) {
+                await renderDashboard();
+            } else {
+                await loadEntries(currentCategory);
+            }
+            return;
+        }
+
+        try {
+            // Get all categories for reference
+            const categories = await window.api.getCategories();
+            
+            // Search across all entries
+            const allEntries = [];
+            for (const category of categories) {
+                const categoryEntries = await window.api.getEntries(category.id);
+                allEntries.push(...categoryEntries.map(entry => ({
+                    ...entry,
+                    category_name: category.name
+                })));
+            }
+
+            // Perform search
+            const searchResults = allEntries.filter(entry => {
+                const searchableFields = [
+                    entry.title,
+                    entry.description,
+                    entry.wisdom,
+                    entry.tags,
+                    entry.category_name,
+                    entry.files?.map(f => f.name).join(' ') || ''
+                ].map(field => (field || '').toLowerCase());
+
+                return searchableFields.some(field => field.includes(searchTerm));
+            });
+
+            // Group results by category
+            const groupedResults = {};
+            searchResults.forEach(entry => {
+                const categoryName = entry.category_name || 'Uncategorized';
+                if (!groupedResults[categoryName]) {
+                    groupedResults[categoryName] = [];
+                }
+                groupedResults[categoryName].push(entry);
+            });
+
+            // Render search results
+            const container = document.querySelector('.entries-container');
+            container.innerHTML = `
+                <div class="search-results">
+                    <h2><i class="fas fa-search"></i> Search Results for "${searchTerm}"</h2>
+                    ${Object.keys(groupedResults).length > 0 ? `
+                        ${Object.entries(groupedResults).map(([categoryName, entries]) => `
+                            <div class="search-category-group">
+                                <h3><i class="fas fa-folder"></i> ${categoryName} (${entries.length})</h3>
+                                <div class="search-entries-grid">
+                                    ${entries.map(entry => {
+                                        const highlightedTitle = entry.title.replace(
+                                            new RegExp(searchTerm, 'gi'),
+                                            match => `<mark>${match}</mark>`
+                                        );
+                                        const highlightedDesc = entry.description?.replace(
+                                            new RegExp(searchTerm, 'gi'),
+                                            match => `<mark>${match}</mark>`
+                                        );
+
+                                        return `
+                                            <div class="search-entry" data-entry-id="${entry.id}" data-category-id="${entry.category_id}">
+                                                <div class="search-entry-header">
+                                                    <h4>${highlightedTitle}</h4>
+                                                    ${entry.description ? `
+                                                        <p>${highlightedDesc}</p>
+                                                    ` : ''}
+                                                </div>
+                                                <div class="search-entry-meta">
+                                                    ${entry.tags ? `
+                                                        <div class="search-entry-tags">
+                                                            ${entry.tags.split(',').map(tag => `
+                                                                <span class="tag">${tag.trim()}</span>
+                                                            `).join('')}
+                                                        </div>
+                                                    ` : ''}
+                                                    <div class="search-entry-info">
+                                                        <span><i class="fas fa-calendar"></i> ${new Date(entry.updated_at).toLocaleDateString()}</span>
+                                                        ${entry.files?.length ? `
+                                                            <span><i class="fas fa-paperclip"></i> ${entry.files.length} files</span>
+                                                        ` : ''}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    ` : '<p class="no-results">No matching entries found</p>'}
+                </div>
+            `;
+
+            // Add click handlers for search results
+            container.querySelectorAll('.search-entry').forEach(result => {
+                result.addEventListener('click', async () => {
+                    const categoryId = result.dataset.categoryId;
+                    const entryId = result.dataset.entryId;
+                    
+                    // Update category selection
+                    currentCategory = categoryId;
+                    document.querySelectorAll('.category-item').forEach(item => {
+                        item.classList.toggle('active', item.dataset.id === categoryId);
+                    });
+                    
+                    // Load entries for the category
+                    await loadEntries(categoryId);
+                    
+                    // Find and highlight the selected entry
+                    setTimeout(() => {
+                        const targetEntry = document.querySelector(`.entry[data-entry-id="${entryId}"]`);
+                        if (targetEntry) {
+                            targetEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            targetEntry.style.animation = 'highlight 2s';
+                        }
+                    }, 100);
+                });
+            });
+
+        } catch (error) {
+            console.error('Error performing search:', error);
+            showNotification('Error performing search', 'error');
+        }
+    }, 300));
+    
+    searchClearBtn.addEventListener('click', async () => {
+        searchInput.value = '';
+        searchClearBtn.classList.remove('visible');
+        if (!currentCategory) {
+            await renderDashboard();
+        } else {
+            await loadEntries(currentCategory);
+        }
+    });
 
     // Add Entry button
     addEntryBtn.addEventListener('click', () => showModal());
@@ -347,32 +495,141 @@ function renderEntries(entriesToRender = entries) {
 
 // Handle search
 async function handleSearch(event) {
-    const query = event.target.value.toLowerCase();
+    const query = event.target.value.toLowerCase().trim();
+    const container = document.querySelector('.entries-container');
     
-    if (!currentCategory) {
-        // If on dashboard, search across all categories
-        try {
-            const data = await window.api.getDashboardData();
-            const allEntries = [...new Set([...data.favorites, ...data.recentEntries])];
-            const filteredEntries = allEntries.filter(entry => 
-                entry.title.toLowerCase().includes(query) ||
-                entry.description?.toLowerCase().includes(query) ||
-                entry.wisdom?.toLowerCase().includes(query) ||
-                entry.tags?.toLowerCase().includes(query)
-            );
-            renderDashboard(filteredEntries);
-        } catch (error) {
-            console.error('Error searching dashboard:', error);
+    if (!query) {
+        // If search is cleared, return to normal view
+        if (!currentCategory) {
+            await renderDashboard();
+        } else {
+            await loadEntries(currentCategory);
         }
-    } else {
-        // If in a category, filter current entries
-        const filteredEntries = entries.filter(entry => 
-            entry.title.toLowerCase().includes(query) ||
-            entry.description?.toLowerCase().includes(query) ||
-            entry.wisdom?.toLowerCase().includes(query) ||
-            entry.tags?.toLowerCase().includes(query)
-        );
-        renderEntries(filteredEntries);
+        return;
+    }
+
+    try {
+        // Get all categories for reference
+        const categories = await window.api.getCategories();
+        
+        // Search across all entries
+        const allEntries = [];
+        for (const category of categories) {
+            const categoryEntries = await window.api.getEntries(category.id);
+            allEntries.push(...categoryEntries);
+        }
+
+        // Perform search
+        const searchResults = allEntries.filter(entry => {
+            const searchableFields = [
+                entry.title,
+                entry.description,
+                entry.wisdom,
+                entry.tags,
+                entry.category_name,
+                entry.files?.map(f => f.name).join(' ') || ''
+            ].map(field => (field || '').toLowerCase());
+
+            // Check if any field contains the search query
+            return searchableFields.some(field => field.includes(query));
+        });
+
+        // Group results by category
+        const groupedResults = {};
+        searchResults.forEach(entry => {
+            const categoryName = entry.category_name || 'Uncategorized';
+            if (!groupedResults[categoryName]) {
+                groupedResults[categoryName] = [];
+            }
+            groupedResults[categoryName].push(entry);
+        });
+
+        // Render search results
+        container.innerHTML = `
+            <div class="search-results">
+                <h2><i class="fas fa-search"></i> Search Results for "${query}"</h2>
+                ${Object.keys(groupedResults).length > 0 ? `
+                    ${Object.entries(groupedResults).map(([categoryName, entries]) => `
+                        <div class="search-category-group">
+                            <h3><i class="fas fa-folder"></i> ${categoryName} (${entries.length})</h3>
+                            <div class="search-entries-grid">
+                                ${entries.map(entry => {
+                                    // Highlight matching text in title and description
+                                    const highlightedTitle = entry.title.replace(
+                                        new RegExp(query, 'gi'),
+                                        match => `<mark>${match}</mark>`
+                                    );
+                                    const highlightedDesc = entry.description?.replace(
+                                        new RegExp(query, 'gi'),
+                                        match => `<mark>${match}</mark>`
+                                    );
+
+                                    return `
+                                        <div class="search-entry" data-entry-id="${entry.id}" data-category-id="${entry.category_id}">
+                                            <div class="search-entry-header">
+                                                <h4>${highlightedTitle}</h4>
+                                                ${entry.description ? `
+                                                    <p>${highlightedDesc}</p>
+                                                ` : ''}
+                                            </div>
+                                            <div class="search-entry-meta">
+                                                ${entry.tags ? `
+                                                    <div class="search-entry-tags">
+                                                        ${entry.tags.split(',').map(tag => `
+                                                            <span class="tag">${tag.trim()}</span>
+                                                        `).join('')}
+                                                    </div>
+                                                ` : ''}
+                                                <div class="search-entry-info">
+                                                    <span><i class="fas fa-calendar"></i> ${new Date(entry.updated_at).toLocaleDateString()}</span>
+                                                    ${entry.files?.length ? `
+                                                        <span><i class="fas fa-paperclip"></i> ${entry.files.length} files</span>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                ` : '<p class="no-results">No matching entries found</p>'}
+            </div>
+        `;
+
+        // Add click handlers for search results
+        container.querySelectorAll('.search-entry').forEach(result => {
+            result.addEventListener('click', async () => {
+                const categoryId = result.dataset.categoryId;
+                const entryId = result.dataset.entryId;
+                
+                // Clear the search
+                searchInput.value = '';
+                searchClearBtn.classList.remove('visible');
+                
+                // Update category selection
+                currentCategory = categoryId;
+                document.querySelectorAll('.category-item').forEach(item => {
+                    item.classList.toggle('active', item.dataset.id === categoryId);
+                });
+                
+                // Load entries for the category
+                await loadEntries(categoryId);
+                
+                // Find and highlight the selected entry
+                setTimeout(() => {
+                    const targetEntry = document.querySelector(`.entry[data-entry-id="${entryId}"]`);
+                    if (targetEntry) {
+                        targetEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targetEntry.style.animation = 'highlight 2s';
+                    }
+                }, 100);
+            });
+        });
+
+    } catch (error) {
+        console.error('Error performing search:', error);
+        showNotification('Error performing search', 'error');
     }
 }
 
@@ -1718,4 +1975,15 @@ function createEntryElement(entry) {
     }
 
     return entryElement;
+}
+
+// Add clearSearch function
+async function clearSearch() {
+    searchInput.value = '';
+    searchClearBtn.classList.remove('visible');
+    if (!currentCategory) {
+        await renderDashboard();
+    } else {
+        await loadEntries(currentCategory);
+    }
 } 
