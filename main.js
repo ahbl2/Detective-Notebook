@@ -535,36 +535,81 @@ ipcMain.handle('add-entry', (event, entry) => {
     const id = uuidv4();
     const now = new Date().toISOString();
     
-    const query = `
-      INSERT INTO entries (
-        id, title, description, wisdom, category_id,
-        file_path, device_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    
-    const params = [
-      id,
-      entry.title,
-      entry.description || '',
-      entry.wisdom || '',
-      entry.categoryId,
-      entry.file_path || null,
-      config.deviceId,
-      now,
-      now
-    ];
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
 
-    console.log('Executing query:', query);
-    console.log('With parameters:', params);
+      const query = `
+        INSERT INTO entries (
+          id, title, description, wisdom, category_id,
+          device_id, created_at, updated_at, tags
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      const params = [
+        id,
+        entry.title,
+        entry.description || '',
+        entry.wisdom || '',
+        entry.categoryId,
+        config.deviceId,
+        now,
+        now,
+        entry.tags || ''
+      ];
 
-    db.run(query, params, function(err) {
-      if (err) {
-        console.error('Database error adding entry:', err);
-        reject(err);
-      } else {
-        console.log('Entry added successfully:', { id, ...entry });
-        resolve({ id, ...entry });
-      }
+      db.run(query, params, function(err) {
+        if (err) {
+          console.error('Database error adding entry:', err);
+          db.run('ROLLBACK');
+          reject(err);
+          return;
+        }
+
+        // Insert files if present
+        if (entry.files && entry.files.length > 0) {
+          const stmt = db.prepare(`
+            INSERT INTO entry_files (entry_id, file_path, file_name, created_at)
+            VALUES (?, ?, ?, ?)
+          `);
+
+          entry.files.forEach(file => {
+            stmt.run([id, file.path, file.name, now]);
+          });
+
+          stmt.finalize((err) => {
+            if (err) {
+              console.error('Error inserting files:', err);
+              db.run('ROLLBACK');
+              reject(err);
+              return;
+            }
+
+            db.run('COMMIT', (err) => {
+              if (err) {
+                console.error('Error committing transaction:', err);
+                db.run('ROLLBACK');
+                reject(err);
+                return;
+              }
+
+              console.log('Entry and files added successfully:', id);
+              resolve({ id, ...entry, created_at: now, updated_at: now });
+            });
+          });
+        } else {
+          db.run('COMMIT', (err) => {
+            if (err) {
+              console.error('Error committing transaction:', err);
+              db.run('ROLLBACK');
+              reject(err);
+              return;
+            }
+
+            console.log('Entry added successfully:', id);
+            resolve({ id, ...entry, created_at: now, updated_at: now });
+          });
+        }
+      });
     });
   });
 });
