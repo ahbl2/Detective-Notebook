@@ -1220,7 +1220,8 @@ ipcMain.handle('get-dashboard-data', () => {
     return new Promise((resolve, reject) => {
         const data = {
             favorites: [],
-            recentEntries: []
+            recentEntries: [],
+            recentlyAdded: []
         };
 
         db.serialize(() => {
@@ -1257,7 +1258,7 @@ ipcMain.handle('get-dashboard-data', () => {
                     return entry;
                 });
 
-                // Get recent entries - only show new entries and entries with new file attachments
+                // Get recently updated entries (modified after creation)
                 db.all(`
                     SELECT DISTINCT e.*, c.name as category_name,
                         (SELECT AVG(rating) FROM ratings WHERE entry_id = e.id) as rating,
@@ -1266,24 +1267,14 @@ ipcMain.handle('get-dashboard-data', () => {
                          FROM entry_files ef
                          WHERE ef.entry_id = e.id) as files,
                         CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
-                        COALESCE(
-                            (SELECT MAX(created_at) FROM entry_files WHERE entry_id = e.id),
-                            e.created_at
-                        ) as last_content_update
+                        e.updated_at as last_content_update
                     FROM entries e
                     LEFT JOIN categories c ON e.category_id = c.id
                     LEFT JOIN favorites f ON e.id = f.entry_id AND f.device_id = ?
                     WHERE 
-                        -- Show entries created in the last 7 days
-                        e.created_at >= datetime('now', '-7 days')
-                        OR 
-                        -- Show entries with new file attachments in the last 7 days
-                        EXISTS (
-                            SELECT 1 
-                            FROM entry_files 
-                            WHERE entry_id = e.id 
-                            AND created_at >= datetime('now', '-7 days')
-                        )
+                        -- Only show entries that have been modified after creation
+                        e.updated_at > e.created_at
+                        AND e.updated_at >= datetime('now', '-7 days')
                     ORDER BY last_content_update DESC
                     LIMIT 10
                 `, [config.deviceId], (err, recent) => {
@@ -1305,7 +1296,47 @@ ipcMain.handle('get-dashboard-data', () => {
                         return entry;
                     });
 
-                    resolve(data);
+                    // Get recently added entries (created in last 7 days)
+                    db.all(`
+                        SELECT DISTINCT e.*, c.name as category_name,
+                            (SELECT AVG(rating) FROM ratings WHERE entry_id = e.id) as rating,
+                            (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
+                            (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
+                             FROM entry_files ef
+                             WHERE ef.entry_id = e.id) as files,
+                            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+                            e.created_at as last_content_update
+                        FROM entries e
+                        LEFT JOIN categories c ON e.category_id = c.id
+                        LEFT JOIN favorites f ON e.id = f.entry_id AND f.device_id = ?
+                        WHERE 
+                            -- Show entries created within the last 7 days
+                            e.created_at >= datetime('now', '-7 days')
+                            -- Exclude entries that have been modified (they'll be in recent updates)
+                            AND e.updated_at = e.created_at
+                        ORDER BY last_content_update DESC
+                        LIMIT 10
+                    `, [config.deviceId], (err, added) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+
+                        // Process files for recently added entries
+                        data.recentlyAdded = added.map(entry => {
+                            if (entry.files) {
+                                entry.files = entry.files.split(',').map(fileStr => {
+                                    const [path, name] = fileStr.split('|');
+                                    return { path, name };
+                                });
+                            } else {
+                                entry.files = [];
+                            }
+                            return entry;
+                        });
+
+                        resolve(data);
+                    });
                 });
             });
         });

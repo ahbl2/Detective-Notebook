@@ -790,7 +790,8 @@ async function renderDashboard() {
                     <div class="dashboard-section">
                         <h2><i class="fas fa-clock"></i> Recent Updates</h2>
                         <div class="feed-list">
-                            ${data.recentEntries.slice(0, 10).map(entry => `
+                            ${data.recentEntries.length > 0 ? data.recentEntries
+                                .map(entry => `
                                 <a href="#" class="feed-item" data-entry-id="${entry.id}" data-category-id="${entry.category_id || entry.categoryId}">
                                     <div class="feed-item-icon">
                                         <i class="fas fa-edit"></i>
@@ -801,20 +802,19 @@ async function renderDashboard() {
                                             <span class="feed-item-category">${entry.category_name}</span>
                                             <span class="feed-item-time">
                                                 <i class="fas fa-clock"></i>
-                                                ${timeSince(new Date(entry.last_edit_at || entry.updated_at))}
+                                                ${timeSince(new Date(entry.last_content_update))}
                                             </span>
                                         </div>
                                     </div>
                                 </a>
-                            `).join('')}
+                            `).join('') : '<p class="no-entries">No recent updates</p>'}
                         </div>
                     </div>
                     
                     <div class="dashboard-section">
                         <h2><i class="fas fa-plus-circle"></i> Recently Added</h2>
                         <div class="feed-list">
-                            ${data.recentEntries.slice(0, 10)
-                                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                            ${data.recentlyAdded.length > 0 ? data.recentlyAdded
                                 .map(entry => `
                                     <a href="#" class="feed-item" data-entry-id="${entry.id}" data-category-id="${entry.category_id || entry.categoryId}">
                                         <div class="feed-item-icon">
@@ -831,7 +831,7 @@ async function renderDashboard() {
                                             </div>
                                         </div>
                                     </a>
-                                `).join('')}
+                                `).join('') : '<p class="no-entries">No recently added entries</p>'}
                         </div>
                     </div>
                 </div>
