@@ -1212,19 +1212,30 @@ ipcMain.handle('get-dashboard-data', () => {
                     return entry;
                 });
 
-                // Get recent entries
+                // Get recent entries - modified to only show content updates
                 db.all(`
-                    SELECT e.*, c.name as category_name,
+                    SELECT DISTINCT e.*, c.name as category_name,
                         (SELECT AVG(rating) FROM ratings WHERE entry_id = e.id) as rating,
                         (SELECT COUNT(*) FROM ratings WHERE entry_id = e.id) as rating_count,
                         (SELECT GROUP_CONCAT(ef.file_path || '|' || ef.file_name)
                          FROM entry_files ef
                          WHERE ef.entry_id = e.id) as files,
-                        CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
+                        CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+                        COALESCE(
+                            e.updated_at,
+                            (SELECT MAX(created_at) FROM entry_files WHERE entry_id = e.id)
+                        ) as last_content_update
                     FROM entries e
                     LEFT JOIN categories c ON e.category_id = c.id
                     LEFT JOIN favorites f ON e.id = f.entry_id AND f.device_id = ?
-                    ORDER BY e.updated_at DESC
+                    LEFT JOIN entry_files ef ON e.id = ef.entry_id
+                    WHERE e.created_at = e.updated_at  -- New entries
+                       OR EXISTS (  -- Entries with file updates
+                           SELECT 1 FROM entry_files 
+                           WHERE entry_id = e.id 
+                           AND created_at > e.created_at
+                       )
+                    ORDER BY last_content_update DESC
                     LIMIT 10
                 `, [config.deviceId], (err, recent) => {
                     if (err) {
