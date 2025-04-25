@@ -867,11 +867,15 @@ function showModal(entry = null) {
         if (entry) {
             currentEntryId = entry.id;
             currentFiles = entry.files || [];
+            console.log('Title:', entry.title);
             document.getElementById('title').value = entry.title || '';
+            console.log('Description:', entry.description);
             document.getElementById('description').value = entry.description || '';
+            console.log('Wisdom:', entry.wisdom);
             document.getElementById('wisdom').value = entry.wisdom || '';
+            console.log('Tags:', entry.tags);
             document.getElementById('tags').value = entry.tags || '';
-            
+            console.log('Category ID:', entry.category_id || entry.categoryId);
             if (entry.category_id) {
                 document.getElementById('category').value = entry.category_id;
             } else if (entry.categoryId) {
@@ -880,14 +884,11 @@ function showModal(entry = null) {
         } else {
             currentEntryId = null;
             currentFiles = [];
-            
             if (currentCategory) {
                 document.getElementById('category').value = currentCategory;
             }
         }
-        
         updateFileDisplay();
-        
         const titleField = document.getElementById('title');
         if (titleField) {
             titleField.focus();
@@ -1129,6 +1130,7 @@ async function renderDashboard() {
 
         // Initialize empty arrays if properties don't exist
         const favorites = data.favorites || [];
+        window.favorites = favorites; // Make favorites accessible globally
         const recentlyUpdated = (data.recentEntries || []).slice(0, 5); // Limit to 5 entries
         const recentlyAdded = (data.recentlyAdded || []).slice(0, 5); // Limit to 5 entries
         
@@ -1531,9 +1533,17 @@ async function renderDashboard() {
             // Add click handler for edit button
             const editBtn = entry.querySelector('.edit-btn');
             if (editBtn) {
-                editBtn.addEventListener('click', (e) => {
+                editBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    showModal(entry);
+                    const entryId = editBtn.dataset.entryId;
+                    // Get the full entry data from the global favorites array
+                    const entryData = window.favorites.find(e => e.id === entryId);
+                    console.log('Entry data being passed to modal:', entryData);
+                    if (entryData) {
+                        showModal(entryData);
+                    } else {
+                        console.error('Could not find entry data for ID:', entryId);
+                    }
                 });
             }
 
@@ -2343,9 +2353,17 @@ function createEntryElement(entry) {
     // Add click handler for edit button
     const editBtn = entryElement.querySelector('.edit-btn');
     if (editBtn) {
-        editBtn.addEventListener('click', (e) => {
+        editBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            showModal(entry);
+            const entryId = editBtn.dataset.entryId;
+            // Get the full entry data from the global favorites array
+            const entryData = window.favorites.find(e => e.id === entryId);
+            console.log('Entry data being passed to modal:', entryData);
+            if (entryData) {
+                showModal(entryData);
+            } else {
+                console.error('Could not find entry data for ID:', entryId);
+            }
         });
     }
 
