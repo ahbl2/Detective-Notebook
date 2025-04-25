@@ -65,6 +65,13 @@ contextBridge.exposeInMainWorld(
     loadFile: (filePath) => ipcRenderer.invoke('load-file', filePath),
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     saveCategories: (categories) => ipcRenderer.invoke('save-categories', categories),
-    loadCategories: () => ipcRenderer.invoke('load-categories')
+    loadCategories: () => ipcRenderer.invoke('load-categories'),
+    send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+    invoke: (channel, data) => {
+        const validChannels = ['reset-window-state', 'force-input-reset'];
+        if (validChannels.includes(channel)) {
+            return ipcRenderer.invoke(channel, data);
+        }
+    }
   }
 ); 

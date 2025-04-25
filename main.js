@@ -1461,6 +1461,92 @@ ipcMain.handle('load-categories', async () => {
     }
 });
 
+// Add window reset handler
+ipcMain.on('force-window-reset', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        // Force a window blur/focus cycle
+        win.minimize();
+        setTimeout(() => {
+            win.restore();
+            win.focus();
+        }, 10);
+    }
+});
+
+// Add near other IPC handlers
+ipcMain.on('force-window-refresh', () => {
+    // Get all windows
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+        // Force the window to blur
+        win.blur();
+        // Force a window refresh
+        win.webContents.invalidate();
+        // Bring window back to focus
+        setTimeout(() => {
+            win.focus();
+            win.webContents.focus();
+        }, 50);
+    });
+});
+
+// Add near other IPC handlers
+ipcMain.on('prepare-for-ui-update', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        // Temporarily disable input events at the window level
+        win.webContents.executeJavaScript(`
+            document.body.style.pointerEvents = 'none';
+            setTimeout(() => {
+                document.body.style.pointerEvents = 'auto';
+            }, 100);
+        `);
+    }
+});
+
+ipcMain.on('ui-update-complete', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        // Re-enable input and ensure window is ready
+        win.webContents.executeJavaScript(`
+            document.body.style.pointerEvents = 'auto';
+            document.documentElement.style.pointerEvents = 'auto';
+            void document.body.offsetHeight;
+        `);
+    }
+});
+
+// Add these handlers near other IPC handlers
+ipcMain.handle('reset-window-state', () => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(window => {
+        // Force window to release focus and then regain it
+        window.blur();
+        window.webContents.setUserAgent(window.webContents.getUserAgent());
+        window.focus();
+        
+        // Reset input mode
+        window.webContents.sendInputEvent({
+            type: 'keyUp',
+            keyCode: 'Tab'
+        });
+    });
+});
+
+ipcMain.handle('force-input-reset', () => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(window => {
+        // Reset the webContents state
+        window.webContents.reload();
+        
+        // Wait for the reload to complete
+        window.webContents.once('did-finish-load', () => {
+            window.focus();
+        });
+    });
+});
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(createWindow);
 

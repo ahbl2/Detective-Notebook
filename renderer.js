@@ -106,6 +106,7 @@ function initializeModal() {
     const closeModal = () => {
         entryModal.style.display = 'none';
         entryForm.reset();
+        forceClearOverlaysAndPointerEvents();
     };
     
     // Add event listeners for modal controls
@@ -122,6 +123,13 @@ function initializeModal() {
     // Prevent modal close when clicking modal content
     entryModal.querySelector('.modal-content').addEventListener('click', (e) => {
         e.stopPropagation();
+    });
+    
+    // Add escape key handler
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && entryModal.style.display === 'block') {
+            closeModal();
+        }
     });
 }
 
@@ -779,58 +787,84 @@ function showModal(entry = null) {
     
     if (entry) {
         const deleteBtn = formActions.querySelector('.delete-btn');
-        deleteBtn.addEventListener('click', async () => {
-            if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
-                try {
-                    await window.api.deleteEntry(entry.id);
-                    entryModal.style.display = 'none';
-                    
-                    // Refresh the view
-                    if (currentCategory) {
-                        entries = await window.api.getEntries(currentCategory);
-                        renderEntries(entries);
-                    } else {
-                        await renderDashboard();
-                    }
-                    
-                    // Refresh categories to update counts
-                    await refreshCategories();
-                    showNotification('Entry deleted successfully', 'success');
-                } catch (error) {
-                    console.error('Error deleting entry:', error);
-                    showNotification('Failed to delete entry', 'error');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                if (deleteBtn.disabled || !entry.id) {
+                    return;
                 }
-            }
-        });
-    }
-    
-    // Remove any existing file info
-    const existingFileInfo = entryModal.querySelector('.current-file-info');
-    if (existingFileInfo) {
-        existingFileInfo.remove();
-    }
 
-    // Initialize form fields
-    const formFields = entryForm.querySelectorAll('input, textarea, select');
-    formFields.forEach(field => {
-        field.disabled = false;
-        field.readOnly = false;
-        field.style.pointerEvents = 'auto';
-        field.style.userSelect = 'auto';
-        field.style.opacity = '1';
-        field.style.backgroundColor = 'white';
-        field.style.cursor = field.type === 'file' || field.tagName === 'SELECT' ? 'pointer' : 'text';
-        field.style.position = 'relative';
-        field.style.zIndex = '1';
-    });
+                if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
+                    try {
+                        // Disable the delete button immediately
+                        deleteBtn.disabled = true;
+                        
+                        // Close modal first
+                        entryModal.style.display = 'none';
+                        entryForm.reset();
+                        
+                        // Perform deletion
+                        await window.api.deleteEntry(entry.id);
+                        
+                        // Reset window and input state
+                        await resetWindowAndInputState();
+                        
+                        // Remove entry from UI
+                        const entryElement = document.querySelector(`.entry[data-entry-id="${entry.id}"]`);
+                        if (entryElement && document.body.contains(entryElement)) {
+                            entryElement.remove();
+                        }
+                        
+                        // Refresh the view
+                        if (currentCategory) {
+                            entries = await window.api.getEntries(currentCategory);
+                            await renderEntries(entries);
+                        } else {
+                            await renderDashboard();
+                        }
+                        
+                        // Show success notification
+                        showNotification('Entry deleted successfully', 'success');
+                        
+                        // Refresh categories
+                        await refreshCategories();
+                        
+                        // Focus search input after everything is done
+                        setTimeout(() => {
+                            const searchInput = document.querySelector('#search');
+                            if (searchInput) {
+                                const newSearchInput = searchInput.cloneNode(true);
+                                newSearchInput.value = searchInput.value;
+                                searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+                                newSearchInput.focus();
+                            }
+                        }, 100);
+                        
+                    } catch (error) {
+                        console.error('Error deleting entry:', error);
+                        showNotification('Failed to delete entry', 'error');
+                        deleteBtn.disabled = false;
+                        
+                        // Try to reset window state even on error
+                        await resetWindowAndInputState();
+                    }
+                }
+            });
+        }
+    }
     
     // Show modal
     entryModal.style.display = 'block';
     
+    // Reset focus state
+    document.documentElement.style.pointerEvents = 'auto';
+    document.body.style.pointerEvents = 'auto';
+    
     // Populate category dropdown and then set form values
     populateCategoryDropdown().then(() => {
         if (entry) {
-            // If editing an existing entry
             currentEntryId = entry.id;
             currentFiles = entry.files || [];
             document.getElementById('title').value = entry.title || '';
@@ -838,30 +872,26 @@ function showModal(entry = null) {
             document.getElementById('wisdom').value = entry.wisdom || '';
             document.getElementById('tags').value = entry.tags || '';
             
-            // Set the category
-            const categorySelect = document.getElementById('category');
             if (entry.category_id) {
-                categorySelect.value = entry.category_id;
+                document.getElementById('category').value = entry.category_id;
             } else if (entry.categoryId) {
-                categorySelect.value = entry.categoryId;
+                document.getElementById('category').value = entry.categoryId;
             }
         } else {
-            // If adding a new entry
             currentEntryId = null;
             currentFiles = [];
             
-            // Set the current category if one is selected
             if (currentCategory) {
-                const categorySelect = document.getElementById('category');
-                categorySelect.value = currentCategory;
+                document.getElementById('category').value = currentCategory;
             }
         }
         
-        // Update file display
         updateFileDisplay();
         
-        // Focus on title field
-        document.getElementById('title').focus();
+        const titleField = document.getElementById('title');
+        if (titleField) {
+            titleField.focus();
+        }
     });
 }
 
@@ -1448,26 +1478,52 @@ async function renderDashboard() {
             if (favoriteBtn) {
                 favoriteBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    e.preventDefault();
+
+                    if (favoriteBtn.disabled) {
+                        return;
+                    }
+
                     try {
-                        const result = await window.api.toggleFavorite(entryId);
+                        // Disable the button while processing
+                        favoriteBtn.disabled = true;
+
+                        const result = await window.api.toggleFavorite(entry.id);
                         favoriteBtn.classList.toggle('active', result.isFavorite);
                         favoriteBtn.title = result.isFavorite ? 'Remove from favorites' : 'Add to favorites';
                         
-                        if (!result.isFavorite && entry.closest('.favorites-grid')) {
-                            // Remove the entry from favorites with animation
-                            entry.style.animation = 'fadeOut 0.3s';
+                        // If removing from favorites and we're in the favorites section
+                        const entryContainer = favoriteBtn.closest('.entry');
+                        if (!result.isFavorite && entryContainer && entryContainer.closest('.favorites-grid')) {
+                            // Remove the entry with animation
+                            entryContainer.style.animation = 'fadeOut 0.3s';
                             setTimeout(() => {
-                                entry.remove();
-                                // If no more favorites, show the no entries message
-                                const favoritesGrid = document.querySelector('.favorites-grid');
-                                if (favoritesGrid && !favoritesGrid.querySelector('.entry')) {
-                                    favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+                                if (document.body.contains(entryContainer)) {
+                                    entryContainer.remove();
+                                    
+                                    // Check if we need to show "no entries" message
+                                    const favoritesGrid = document.querySelector('.favorites-grid');
+                                    if (favoritesGrid && !favoritesGrid.querySelector('.entry')) {
+                                        favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+                                    }
+                                }
+                                // Clean overlays and pointer-events
+                                forceClearOverlaysAndPointerEvents();
+                                // Focus the search input
+                                const searchInput = document.querySelector('#search');
+                                if (searchInput) {
+                                    searchInput.focus();
                                 }
                             }, 300);
                         }
+                        
+                        // Re-enable the button
+                        favoriteBtn.disabled = false;
                     } catch (error) {
                         console.error('Error toggling favorite:', error);
                         showNotification('Error updating favorites', 'error');
+                        // Re-enable the button on error
+                        favoriteBtn.disabled = false;
                     }
                 });
             }
@@ -1477,43 +1533,81 @@ async function renderDashboard() {
             if (editBtn) {
                 editBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    const entryData = favorites.find(e => e?.id === entryId) || 
-                                    recentlyUpdated.find(e => e?.id === entryId) || 
-                                    recentlyAdded.find(e => e?.id === entryId);
-                    if (entryData) {
-                        showModal(entryData);
+                    showModal(entry);
+                });
+            }
+
+            // Add handlers for file attachments
+            if ((entry.files && entry.files.length > 0) || entry.file_path) {
+                const fileAttachments = entry.querySelectorAll('.file-attachment');
+                fileAttachments.forEach((fileAttachment, index) => {
+                    const file = entry.files ? entry.files[index] : { path: entry.file_path };
+                    
+                    // Open file on click
+                    fileAttachment.addEventListener('click', async (e) => {
+                        if (!e.target.closest('.download-btn')) {
+                            try {
+                                await window.api.openFile(file.path);
+                                // Increment view count when file is opened
+                                await window.api.incrementViewCount(entry.id);
+                                // Update the view count display
+                                const viewCountElement = entry.querySelector('.metadata-item[title^="Viewed"]');
+                                if (viewCountElement) {
+                                    const currentCount = parseInt(viewCountElement.textContent) || 0;
+                                    viewCountElement.textContent = currentCount + 1;
+                                    viewCountElement.title = `Viewed ${currentCount + 1} times`;
+                                }
+                            } catch (error) {
+                                console.error('Error opening file:', error);
+                                showNotification('Failed to open file', 'error');
+                            }
+                        }
+                    });
+
+                    // Download file on download button click
+                    const downloadBtn = fileAttachment.querySelector('.download-btn');
+                    if (downloadBtn) {
+                        downloadBtn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            try {
+                                await window.api.downloadFile(file.path);
+                                showNotification('File download started', 'success');
+                            } catch (error) {
+                                console.error('Error downloading file:', error);
+                                showNotification('Failed to download file', 'error');
+                            }
+                        });
                     }
                 });
             }
 
-            // Add click handler for delete button
-            const deleteBtn = entry.querySelector('.delete-btn');
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', async (e) => {
+            // Add click handlers for star ratings
+            const stars = entry.querySelectorAll('.star');
+            stars.forEach(star => {
+                star.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    if (confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
-                        try {
-                            await window.api.deleteEntry(entryId);
-                            entry.style.animation = 'fadeOut 0.3s';
-                            setTimeout(() => {
-                                entry.remove();
-                                // If no more entries in the section, show the no entries message
-                                const section = entry.closest('.dashboard-section');
-                                if (section) {
-                                    const grid = section.querySelector('.favorites-grid, .recent-updates-grid, .recently-added-grid');
-                                    if (grid && !grid.querySelector('.entry')) {
-                                        grid.innerHTML = `<p class="no-entries">No ${section.querySelector('h2')?.textContent?.toLowerCase() || ''} entries.</p>`;
-                                    }
-                                }
-                            }, 300);
-                            showNotification('Entry deleted successfully', 'success');
-                        } catch (error) {
-                            console.error('Error deleting entry:', error);
-                            showNotification('Failed to delete entry', 'error');
-                        }
+                    const rating = parseInt(star.dataset.rating);
+                    const entryId = star.closest('.rating-stars').dataset.entryId;
+                    
+                    try {
+                        await window.api.addRating({
+                            entry_id: entryId,
+                            rating: rating
+                        });
+                        
+                        // Update the stars visually
+                        const allStars = star.closest('.rating-stars').querySelectorAll('.star');
+                        allStars.forEach((s, index) => {
+                            s.classList.toggle('active', index < rating);
+                        });
+                        
+                        showNotification('Rating saved successfully', 'success');
+                    } catch (error) {
+                        console.error('Error saving rating:', error);
+                        showNotification('Error saving rating', 'error');
                     }
                 });
-            }
+            });
         });
 
         // Add sort change listener for favorites
@@ -2196,26 +2290,52 @@ function createEntryElement(entry) {
     if (favoriteBtn) {
         favoriteBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
+            e.preventDefault();
+
+            if (favoriteBtn.disabled) {
+                return;
+            }
+
             try {
+                // Disable the button while processing
+                favoriteBtn.disabled = true;
+
                 const result = await window.api.toggleFavorite(entry.id);
                 favoriteBtn.classList.toggle('active', result.isFavorite);
                 favoriteBtn.title = result.isFavorite ? 'Remove from favorites' : 'Add to favorites';
                 
-                if (!result.isFavorite && entry.closest('.favorites-grid')) {
-                    // Remove the entry from favorites with animation
-                    entry.style.animation = 'fadeOut 0.3s';
+                // If removing from favorites and we're in the favorites section
+                const entryContainer = favoriteBtn.closest('.entry');
+                if (!result.isFavorite && entryContainer && entryContainer.closest('.favorites-grid')) {
+                    // Remove the entry with animation
+                    entryContainer.style.animation = 'fadeOut 0.3s';
                     setTimeout(() => {
-                        entry.remove();
-                        // If no more favorites, show the no entries message
-                        const favoritesGrid = document.querySelector('.favorites-grid');
-                        if (favoritesGrid && !favoritesGrid.querySelector('.entry')) {
-                            favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+                        if (document.body.contains(entryContainer)) {
+                            entryContainer.remove();
+                            
+                            // Check if we need to show "no entries" message
+                            const favoritesGrid = document.querySelector('.favorites-grid');
+                            if (favoritesGrid && !favoritesGrid.querySelector('.entry')) {
+                                favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+                            }
+                        }
+                        // Clean overlays and pointer-events
+                        forceClearOverlaysAndPointerEvents();
+                        // Focus the search input
+                        const searchInput = document.querySelector('#search');
+                        if (searchInput) {
+                            searchInput.focus();
                         }
                     }, 300);
                 }
+                
+                // Re-enable the button
+                favoriteBtn.disabled = false;
             } catch (error) {
                 console.error('Error toggling favorite:', error);
                 showNotification('Error updating favorites', 'error');
+                // Re-enable the button on error
+                favoriteBtn.disabled = false;
             }
         });
     }
@@ -2273,6 +2393,34 @@ function createEntryElement(entry) {
         });
     }
 
+    // Add click handlers for star ratings
+    const stars = entryElement.querySelectorAll('.star');
+    stars.forEach(star => {
+        star.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const rating = parseInt(star.dataset.rating);
+            const entryId = star.closest('.rating-stars').dataset.entryId;
+            
+            try {
+                await window.api.addRating({
+                    entry_id: entryId,
+                    rating: rating
+                });
+                
+                // Update the stars visually
+                const allStars = star.closest('.rating-stars').querySelectorAll('.star');
+                allStars.forEach((s, index) => {
+                    s.classList.toggle('active', index < rating);
+                });
+                
+                showNotification('Rating saved successfully', 'success');
+            } catch (error) {
+                console.error('Error saving rating:', error);
+                showNotification('Error saving rating', 'error');
+            }
+        });
+    });
+
     return entryElement;
 }
 
@@ -2285,4 +2433,170 @@ async function clearSearch() {
     } else {
         await loadEntries(currentCategory);
     }
-} 
+}
+
+// Utility function to clear overlays and pointer-events
+function forceClearOverlaysAndPointerEvents() {
+    // Remove any modal overlays or backdrops
+    document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(el => el.remove());
+    
+    // Remove modal-open class and any inline styles from body
+    document.body.className = document.body.className.replace(/\bmodal-open\b/, '');
+    document.body.style.removeProperty('pointer-events');
+    document.body.style.removeProperty('overflow');
+    
+    // Reset document element styles
+    document.documentElement.style.removeProperty('pointer-events');
+    document.documentElement.style.removeProperty('overflow');
+    
+    // Remove any capturing event listeners
+    document.removeEventListener('keydown', handleKeyDown, true);
+    document.removeEventListener('keyup', handleKeyUp, true);
+    document.removeEventListener('keypress', handleKeyPress, true);
+    document.removeEventListener('click', handleClick, true);
+    
+    // Re-add normal event listeners
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    document.addEventListener('keypress', handleKeyPress);
+    document.addEventListener('click', handleClick);
+    
+    // Reset all input elements
+    document.querySelectorAll('input, textarea').forEach(input => {
+        input.style.removeProperty('pointer-events');
+        input.style.removeProperty('user-select');
+        input.disabled = false;
+    });
+}
+
+// Add this new function near the top with other utility functions
+function forceWindowRefocus() {
+    // Force window blur and refocus
+    window.api.send('force-window-refresh');
+    
+    // Reset all input-related styles
+    document.querySelectorAll('input, textarea').forEach(input => {
+        input.style.pointerEvents = 'auto';
+        input.style.userSelect = 'text';
+        input.disabled = false;
+    });
+    
+    // Reset document-level event handling
+    document.body.style.pointerEvents = 'auto';
+    document.documentElement.style.pointerEvents = 'auto';
+    
+    // Clear any selections
+    window.getSelection().removeAllRanges();
+    
+    // Reset focus handling
+    document.body.tabIndex = -1;
+    document.body.focus();
+    document.body.blur();
+    
+    // Force a repaint
+    document.body.style.transform = 'translateZ(0)';
+    void document.body.offsetHeight;
+    document.body.style.transform = '';
+}
+
+// Add this new function near the top with other utility functions
+function resetInputState() {
+    // Reset all input elements
+    document.querySelectorAll('input, textarea').forEach(input => {
+        input.style.pointerEvents = 'auto';
+        input.style.userSelect = 'text';
+        input.disabled = false;
+    });
+    
+    // Reset any selected text
+    if (window.getSelection) {
+        window.getSelection().removeAllRanges();
+    }
+    
+    // Reset document state
+    document.body.style.pointerEvents = 'auto';
+    document.documentElement.style.pointerEvents = 'auto';
+    
+    // Force a small DOM reflow without visual changes
+    void document.body.offsetHeight;
+}
+
+// Add these functions at the top level of the file, near other utility functions
+function handleKeyDown(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        e.target.style.pointerEvents = 'auto';
+        e.target.style.userSelect = 'text';
+    }
+}
+
+function handleKeyUp(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        e.target.style.pointerEvents = 'auto';
+        e.target.style.userSelect = 'text';
+    }
+}
+
+function handleKeyPress(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        e.target.style.pointerEvents = 'auto';
+        e.target.style.userSelect = 'text';
+    }
+}
+
+// Add a click handler function
+function handleClick(e) {
+    // If clicking on an input or textarea, ensure it's enabled
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        e.target.style.removeProperty('pointer-events');
+        e.target.style.removeProperty('user-select');
+        e.target.disabled = false;
+    }
+}
+
+// Add this function at the top level
+async function resetWindowAndInputState() {
+    try {
+        // First try the soft reset
+        await window.api.invoke('reset-window-state');
+        
+        // Remove any modal-related classes and styles
+        document.body.className = document.body.className
+            .split(' ')
+            .filter(cls => !cls.includes('modal'))
+            .join(' ');
+            
+        // Reset all input elements
+        document.querySelectorAll('input, textarea').forEach(input => {
+            const newInput = input.cloneNode(true);
+            newInput.value = input.value; // Preserve the value
+            input.parentNode.replaceChild(newInput, input);
+        });
+        
+        // Reset event listeners
+        document.removeEventListener('keydown', handleKeyDown, true);
+        document.removeEventListener('keyup', handleKeyUp, true);
+        document.removeEventListener('keypress', handleKeyPress, true);
+        
+        // Re-add event listeners normally
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
+        document.addEventListener('keypress', handleKeyPress);
+        
+        // Clear any selections
+        if (window.getSelection) {
+            window.getSelection().removeAllRanges();
+        }
+        
+        // Reset focus handling
+        document.activeElement?.blur();
+        
+    } catch (error) {
+        console.error('Error resetting window state:', error);
+        // If soft reset fails, try hard reset
+        try {
+            await window.api.invoke('force-input-reset');
+        } catch (innerError) {
+            console.error('Error forcing input reset:', innerError);
+        }
+    }
+}
