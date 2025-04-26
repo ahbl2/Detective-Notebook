@@ -798,6 +798,7 @@ function showModal(entry = null) {
                         
                         // Reset window and input state
                         await resetWindowAndInputState();
+                        setupEventListeners();
                         
                         // Remove entry from UI
                         const entryElement = document.querySelector(`.entry[data-entry-id="${entry.id}"]`);
@@ -837,6 +838,7 @@ function showModal(entry = null) {
                         
                         // Try to reset window state even on error
                         await resetWindowAndInputState();
+                        setupEventListeners();
                     }
                 }
             });
@@ -2176,6 +2178,7 @@ document.getElementById('deleteCategoryBtn').addEventListener('click', async () 
             resetCategoryForm();
             showNotification('Category deleted successfully', 'success');
             await resetWindowAndInputState();
+            setupEventListeners();
         } catch (error) {
             console.error('Error deleting category:', error);
             showNotification('Error deleting category', 'error');
