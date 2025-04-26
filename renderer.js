@@ -309,23 +309,19 @@ function setupEventListeners() {
                     const categoryId = result.dataset.categoryId;
                     const entryId = result.dataset.entryId;
                     
-                    // Update category selection
-                    currentCategory = categoryId;
-                    document.querySelectorAll('.category-item').forEach(item => {
-                        item.classList.toggle('active', item.dataset.id === categoryId);
-                    });
-                    
-                    // Load entries for the category
-                    await loadEntries(categoryId);
-                    
-                    // Find and highlight the selected entry
-                    setTimeout(() => {
-                        const targetEntry = document.querySelector(`.entry[data-entry-id="${entryId}"]`);
-                        if (targetEntry) {
-                            targetEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            targetEntry.style.animation = 'highlight 2s';
+                    try {
+                        // Get the entry data from the API
+                        const entryData = await window.api.getEntry(entryId);
+                        if (!entryData) {
+                            throw new Error('Could not find entry data');
                         }
-                    }, 100);
+
+                        // Show the modal with the entry data
+                        showModal(entryData);
+                    } catch (error) {
+                        console.error('Error opening edit modal:', error);
+                        showNotification('Error opening edit modal', 'error');
+                    }
                 });
             });
 
@@ -683,27 +679,19 @@ async function handleSearch(event) {
                 const categoryId = result.dataset.categoryId;
                 const entryId = result.dataset.entryId;
                 
-                // Clear the search
-                searchInput.value = '';
-                searchClearBtn.classList.remove('visible');
-                
-                // Update category selection
-                currentCategory = categoryId;
-                document.querySelectorAll('.category-item').forEach(item => {
-                    item.classList.toggle('active', item.dataset.id === categoryId);
-                });
-                
-                // Load entries for the category
-                await loadEntries(categoryId);
-                
-                // Find and highlight the selected entry
-                setTimeout(() => {
-                    const targetEntry = document.querySelector(`.entry[data-entry-id="${entryId}"]`);
-                    if (targetEntry) {
-                        targetEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        targetEntry.style.animation = 'highlight 2s';
+                try {
+                    // Get the entry data from the API
+                    const entryData = await window.api.getEntry(entryId);
+                    if (!entryData) {
+                        throw new Error('Could not find entry data');
                     }
-                }, 100);
+
+                    // Show the modal with the entry data
+                    showModal(entryData);
+                } catch (error) {
+                    console.error('Error opening edit modal:', error);
+                    showNotification('Error opening edit modal', 'error');
+                }
             });
         });
 
@@ -1535,9 +1523,23 @@ async function renderDashboard() {
             if (editBtn) {
                 editBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    const entryId = editBtn.dataset.entryId;
-                    // Use the entry data directly since we have it
-                    showModal(entry);
+                    try {
+                        // Get the entry data directly from the entries array
+                        const entryId = editBtn.dataset.entryId;
+                        const entryToEdit = entries.find(e => e.id === entryId) || entry;
+                        
+                        if (!entryToEdit) {
+                            console.error('Could not find entry data for ID:', entryId);
+                            showNotification('Error loading entry data', 'error');
+                            return;
+                        }
+
+                        // Show the modal with the entry data
+                        showModal(entryToEdit);
+                    } catch (error) {
+                        console.error('Error opening edit modal:', error);
+                        showNotification('Error opening edit modal', 'error');
+                    }
                 });
             }
 
@@ -2417,9 +2419,23 @@ function createEntryElement(entry) {
     if (editBtn) {
         editBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            const entryId = editBtn.dataset.entryId;
-            // Use the entry data directly since we have it
-            showModal(entry);
+            try {
+                // Get the entry data directly from the entries array
+                const entryId = editBtn.dataset.entryId;
+                const entryToEdit = entries.find(e => e.id === entryId) || entry;
+                
+                if (!entryToEdit) {
+                    console.error('Could not find entry data for ID:', entryId);
+                    showNotification('Error loading entry data', 'error');
+                    return;
+                }
+
+                // Show the modal with the entry data
+                showModal(entryToEdit);
+            } catch (error) {
+                console.error('Error opening edit modal:', error);
+                showNotification('Error opening edit modal', 'error');
+            }
         });
     }
 
