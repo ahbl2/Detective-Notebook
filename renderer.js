@@ -1536,14 +1536,8 @@ async function renderDashboard() {
                 editBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     const entryId = editBtn.dataset.entryId;
-                    // Get the full entry data from the global favorites array
-                    const entryData = window.favorites.find(e => e.id === entryId);
-                    console.log('Entry data being passed to modal:', entryData);
-                    if (entryData) {
-                        showModal(entryData);
-                    } else {
-                        console.error('Could not find entry data for ID:', entryId);
-                    }
+                    // Use the entry data directly since we have it
+                    showModal(entry);
                 });
             }
 
@@ -1863,16 +1857,17 @@ async function handleCategorySubmit(e) {
 }
 
 async function deleteCategory() {
-    const form = document.getElementById('categoryForm');
-    const categoryId = form.categoryId.value;
-    
-    if (!categoryId) return;
-
-    if (!confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
-        return;
-    }
-
     try {
+        const categoryId = document.getElementById('categoryId')?.value;
+        if (!categoryId) {
+            console.error('No category ID found');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
+            return;
+        }
+
         // Check if category has entries
         const entries = await window.api.getEntries();
         const hasEntries = entries.some(entry => entry.categoryId === categoryId);
@@ -1897,12 +1892,48 @@ async function deleteCategory() {
         // Remove category
         categories = categories.filter(cat => cat.id !== categoryId);
         await window.api.saveCategories(categories);
+        
+        // Reset window and input state before UI updates
+        await resetWindowAndInputState();
+        forceClearOverlaysAndPointerEvents();
+        
+        // Remove modal and clean up
+        const modal = document.getElementById('category-settings-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.remove();
+        }
+        
+        // Refresh categories
         await refreshCategories();
-        hideCategoryModal();
+        
+        // Force window to regain focus properly
+        forceWindowRefocus();
+        
+        // Focus search input after everything is done
+        setTimeout(() => {
+            const searchInput = document.querySelector('#search');
+            if (searchInput) {
+                const newSearchInput = searchInput.cloneNode(true);
+                newSearchInput.value = searchInput.value;
+                searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+                newSearchInput.focus();
+            }
+        }, 100);
+        
         showNotification('Category deleted successfully', 'success');
+
     } catch (error) {
         console.error('Error deleting category:', error);
         showNotification('Failed to delete category. Please try again.', 'error');
+        
+        // Clean up even on error
+        await resetWindowAndInputState();
+        const modal = document.getElementById('category-settings-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.remove();
+        }
     }
 }
 
@@ -2029,19 +2060,50 @@ function startNewCategory() {
 }
 
 function resetCategoryForm() {
-    const form = document.getElementById('category-settings-form');
-    form.reset();
-    document.getElementById('categoryId').value = '';
-    document.getElementById('deleteCategoryBtn').style.display = 'none';
-    
-    // Reset selections
-    document.querySelectorAll('.category-list-item').forEach(item => {
-        item.classList.remove('selected');
-    });
-    
-    // Select default icon and color
-    document.querySelector('.icon-option[data-icon="folder"]').classList.add('selected');
-    document.querySelector('.color-option[data-color="#3498db"]').classList.add('selected');
+    try {
+        const form = document.getElementById('category-settings-form');
+        if (!form) {
+            console.error('Category settings form not found');
+            return;
+        }
+
+        // Reset the form
+        form.reset();
+        
+        // Reset category ID
+        const categoryIdInput = document.getElementById('categoryId');
+        if (categoryIdInput) {
+            categoryIdInput.value = '';
+        }
+
+        // Hide delete button
+        const deleteBtn = document.getElementById('deleteCategoryBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+        
+        // Reset selections with null checks
+        document.querySelectorAll('.category-list-item').forEach(item => {
+            if (item) {
+                item.classList.remove('selected');
+            }
+        });
+        
+        // Select default icon and color with null checks
+        const defaultIconOption = document.querySelector('.icon-option[data-icon="folder"]');
+        if (defaultIconOption) {
+            document.querySelectorAll('.icon-option').forEach(opt => opt.classList.remove('selected'));
+            defaultIconOption.classList.add('selected');
+        }
+
+        const defaultColorOption = document.querySelector('.color-option[data-color="#3498db"]');
+        if (defaultColorOption) {
+            document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
+            defaultColorOption.classList.add('selected');
+        }
+    } catch (error) {
+        console.error('Error in resetCategoryForm:', error);
+    }
 }
 
 // Event Listeners for Category Settings
@@ -2356,14 +2418,8 @@ function createEntryElement(entry) {
         editBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const entryId = editBtn.dataset.entryId;
-            // Get the full entry data from the global favorites array
-            const entryData = window.favorites.find(e => e.id === entryId);
-            console.log('Entry data being passed to modal:', entryData);
-            if (entryData) {
-                showModal(entryData);
-            } else {
-                console.error('Could not find entry data for ID:', entryId);
-            }
+            // Use the entry data directly since we have it
+            showModal(entry);
         });
     }
 
