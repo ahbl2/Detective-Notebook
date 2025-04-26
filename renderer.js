@@ -2042,11 +2042,8 @@ function showCategorySettingsModal() {
 
 async function loadCategoriesList() {
     try {
-        // Get fresh categories from the database
         categories = await window.api.getCategories();
-        
         const categoriesList = document.querySelector('#category-settings-modal .categories-list');
-        // Remove pagination container if it exists
         const paginationContainer = document.getElementById('categories-pagination');
         if (paginationContainer) {
             paginationContainer.remove();
@@ -2057,14 +2054,10 @@ async function loadCategoriesList() {
                 Add New Category
             </div>
         `;
-
-        // Add click handler for the add category button
         const addButton = categoriesList.querySelector('.add-category-button');
         addButton.addEventListener('click', () => {
             startNewCategory();
         });
-
-        // Show all categories at once
         if (categories && categories.length > 0) {
             categories.forEach(category => {
                 const item = document.createElement('div');
@@ -2076,9 +2069,34 @@ async function loadCategoriesList() {
                 `;
                 item.addEventListener('click', () => selectCategory(category));
                 categoriesList.appendChild(item);
+                // Add trashcan icon if this is the selected category
+                if (selectedCategoryId === category.id) {
+                    const trashIcon = document.createElement('i');
+                    trashIcon.className = 'fas fa-trash category-delete-icon';
+                    trashIcon.title = 'Delete Category';
+                    trashIcon.style.marginLeft = '10px';
+                    trashIcon.style.cursor = 'pointer';
+                    trashIcon.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        if (confirm('Are you sure you want to delete this category? All entries in this category will be moved to the default category.')) {
+                            try {
+                                await window.api.deleteCategory(category.id);
+                                await refreshCategories();
+                                loadCategoriesList();
+                                resetCategoryForm();
+                                showNotification('Category deleted successfully', 'success');
+                                await resetWindowAndInputState();
+                                setupEventListeners();
+                            } catch (error) {
+                                console.error('Error deleting category:', error);
+                                showNotification('Error deleting category', 'error');
+                            }
+                        }
+                    });
+                    item.appendChild(trashIcon);
+                }
             });
         }
-        // Make scrollable if more than 10 categories
         if (categories.length > 10) {
             categoriesList.classList.add('scrollable');
         } else {
@@ -2092,28 +2110,23 @@ async function loadCategoriesList() {
 
 function selectCategory(category) {
     selectedCategoryId = category.id;
-    
     // Update selected state in list
     document.querySelectorAll('.category-list-item').forEach(item => {
         item.classList.toggle('selected', item.dataset.id === category.id);
     });
-    
+    // Re-render the list to show the trashcan icon
+    loadCategoriesList();
     // Populate form with the correct ID
     document.getElementById('category-name').value = category.name;
     document.getElementById('categoryId').value = category.id;
-    
     // Update icon selection
     document.querySelectorAll('.icon-option').forEach(option => {
         option.classList.toggle('selected', option.dataset.icon === (category.icon || 'folder'));
     });
-    
     // Update color selection
     document.querySelectorAll('.color-option').forEach(option => {
         option.classList.toggle('selected', option.dataset.color === (category.color || '#3498db'));
     });
-    
-    // Show delete button
-    document.getElementById('deleteCategoryBtn').style.display = 'block';
 }
 
 function startNewCategory() {
@@ -2176,25 +2189,6 @@ document.getElementById('category-settings-modal').querySelector('.close-modal')
 
 document.getElementById('cancelCategoryEdit').addEventListener('click', () => {
     resetCategoryForm();
-});
-
-document.getElementById('deleteCategoryBtn').addEventListener('click', async () => {
-    if (!selectedCategoryId) return;
-    
-    if (confirm('Are you sure you want to delete this category? All entries in this category will be moved to the default category.')) {
-        try {
-            await window.api.deleteCategory(selectedCategoryId);
-            await refreshCategories();
-            loadCategoriesList();
-            resetCategoryForm();
-            showNotification('Category deleted successfully', 'success');
-            await resetWindowAndInputState();
-            setupEventListeners();
-        } catch (error) {
-            console.error('Error deleting category:', error);
-            showNotification('Error deleting category', 'error');
-        }
-    }
 });
 
 document.getElementById('category-settings-form').addEventListener('submit', async (e) => {
