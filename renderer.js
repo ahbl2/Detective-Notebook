@@ -1895,47 +1895,95 @@ async function deleteCategory() {
         categories = categories.filter(cat => cat.id !== categoryId);
         await window.api.saveCategories(categories);
         
-        // Reset window and input state before UI updates
-        await resetWindowAndInputState();
-        forceClearOverlaysAndPointerEvents();
-        
-        // Remove modal and clean up
+        // Close the modal first
         const modal = document.getElementById('category-settings-modal');
         if (modal) {
             modal.style.display = 'none';
-            modal.remove();
         }
+
+        // Clear any existing overlays
+        document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(el => el.remove());
+        
+        // Reset document and body states
+        document.documentElement.style.pointerEvents = 'auto';
+        document.body.style.pointerEvents = 'auto';
+        document.body.style.overflow = 'auto';
+        document.body.classList.remove('modal-open');
+        
+        // Re-enable all inputs
+        document.querySelectorAll('input, textarea').forEach(input => {
+            input.style.pointerEvents = 'auto';
+            input.style.userSelect = 'text';
+            input.disabled = false;
+        });
+
+        // Remove any event listeners that might be blocking
+        document.removeEventListener('keydown', handleKeyDown, true);
+        document.removeEventListener('keyup', handleKeyUp, true);
+        document.removeEventListener('keypress', handleKeyPress, true);
+        document.removeEventListener('click', handleClick, true);
+        
+        // Re-add normal event listeners
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
+        document.addEventListener('keypress', handleKeyPress);
+        document.addEventListener('click', handleClick);
+
+        // Clear any text selection
+        if (window.getSelection) {
+            window.getSelection().removeAllRanges();
+        }
+
+        // Force a DOM reflow
+        void document.body.offsetHeight;
         
         // Refresh categories
         await refreshCategories();
         
-        // Force window to regain focus properly
-        forceWindowRefocus();
-        
-        // Focus search input after everything is done
-        setTimeout(() => {
-            const searchInput = document.querySelector('#search');
-            if (searchInput) {
-                const newSearchInput = searchInput.cloneNode(true);
-                newSearchInput.value = searchInput.value;
-                searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+        // Focus the search input
+        const searchInput = document.querySelector('#search');
+        if (searchInput) {
+            // Clone and replace the search input to ensure clean state
+            const newSearchInput = searchInput.cloneNode(true);
+            searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+            // Small delay to ensure DOM is ready
+            setTimeout(() => {
                 newSearchInput.focus();
-            }
-        }, 100);
-        
+                // Trigger a click to ensure focus is properly set
+                newSearchInput.click();
+            }, 100);
+        }
+
+        // Show success notification
         showNotification('Category deleted successfully', 'success');
 
     } catch (error) {
         console.error('Error deleting category:', error);
         showNotification('Failed to delete category. Please try again.', 'error');
         
-        // Clean up even on error
-        await resetWindowAndInputState();
+        // Ensure cleanup even on error
+        document.documentElement.style.pointerEvents = 'auto';
+        document.body.style.pointerEvents = 'auto';
         const modal = document.getElementById('category-settings-modal');
         if (modal) {
             modal.style.display = 'none';
-            modal.remove();
         }
+
+        // Diagnostic logging: overlays and pointer-events
+        console.log('--- DIAGNOSTIC LOGGING AFTER CATEGORY DELETE ---');
+        // Log overlays still present
+        const overlays = Array.from(document.querySelectorAll('[style*="pointer-events: none"], .modal-backdrop, .modal-overlay'));
+        console.log('Overlays or elements with pointer-events: none:', overlays);
+        // Log computed styles for body and html
+        const bodyStyles = window.getComputedStyle(document.body);
+        const htmlStyles = window.getComputedStyle(document.documentElement);
+        console.log('BODY pointer-events:', bodyStyles.pointerEvents, 'user-select:', bodyStyles.userSelect);
+        console.log('HTML pointer-events:', htmlStyles.pointerEvents, 'user-select:', htmlStyles.userSelect);
+        // Log currently focused element
+        console.log('Currently focused element:', document.activeElement);
+        // Log all disabled inputs
+        const disabledInputs = Array.from(document.querySelectorAll('input:disabled, textarea:disabled'));
+        console.log('Disabled inputs:', disabledInputs);
     }
 }
 
@@ -2127,6 +2175,7 @@ document.getElementById('deleteCategoryBtn').addEventListener('click', async () 
             loadCategoriesList();
             resetCategoryForm();
             showNotification('Category deleted successfully', 'success');
+            await resetWindowAndInputState();
         } catch (error) {
             console.error('Error deleting category:', error);
             showNotification('Error deleting category', 'error');
@@ -2688,5 +2737,44 @@ async function resetWindowAndInputState() {
         } catch (innerError) {
             console.error('Error forcing input reset:', innerError);
         }
+    }
+}
+
+// Add this utility function near the top of the file
+function restoreInputAndFocusState() {
+    // Clear any existing overlays
+    document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(el => el.remove());
+    // Reset document and body states
+    document.documentElement.style.pointerEvents = 'auto';
+    document.body.style.pointerEvents = 'auto';
+    document.body.style.overflow = 'auto';
+    document.body.classList.remove('modal-open');
+    // Re-enable all inputs
+    document.querySelectorAll('input, textarea').forEach(input => {
+        input.style.pointerEvents = 'auto';
+        input.style.userSelect = 'text';
+        input.disabled = false;
+    });
+    // Remove any event listeners that might be blocking
+    document.removeEventListener('keydown', handleKeyDown, true);
+    document.removeEventListener('keyup', handleKeyUp, true);
+    document.removeEventListener('keypress', handleKeyPress, true);
+    document.removeEventListener('click', handleClick, true);
+    // Re-add normal event listeners
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    document.addEventListener('keypress', handleKeyPress);
+    document.addEventListener('click', handleClick);
+    // Clear any text selection
+    if (window.getSelection) {
+        window.getSelection().removeAllRanges();
+    }
+    // Force a DOM reflow
+    void document.body.offsetHeight;
+    // Focus and select the search input
+    const searchInput = document.querySelector('#search');
+    if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
     }
 }
