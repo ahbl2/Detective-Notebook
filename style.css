@@ -2055,4 +2055,10 @@ body {
     color: var(--text-secondary);
     font-size: 0.9em;
     font-weight: 500;
+}
+
+#category-settings-modal .categories-list.scrollable {
+  max-height: 350px;
+  overflow-y: auto;
+  padding-right: 8px;
 } 

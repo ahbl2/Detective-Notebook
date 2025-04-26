@@ -2046,6 +2046,11 @@ async function loadCategoriesList() {
         categories = await window.api.getCategories();
         
         const categoriesList = document.querySelector('#category-settings-modal .categories-list');
+        // Remove pagination container if it exists
+        const paginationContainer = document.getElementById('categories-pagination');
+        if (paginationContainer) {
+            paginationContainer.remove();
+        }
         categoriesList.innerHTML = `
             <div class="add-category-button">
                 <i class="fas fa-plus"></i>
@@ -2059,6 +2064,7 @@ async function loadCategoriesList() {
             startNewCategory();
         });
 
+        // Show all categories at once
         if (categories && categories.length > 0) {
             categories.forEach(category => {
                 const item = document.createElement('div');
@@ -2068,10 +2074,15 @@ async function loadCategoriesList() {
                     <i class="fas fa-${category.icon || 'folder'}" style="color: ${category.color || '#3498db'}"></i>
                     <span>${category.name}</span>
                 `;
-                
                 item.addEventListener('click', () => selectCategory(category));
                 categoriesList.appendChild(item);
             });
+        }
+        // Make scrollable if more than 10 categories
+        if (categories.length > 10) {
+            categoriesList.classList.add('scrollable');
+        } else {
+            categoriesList.classList.remove('scrollable');
         }
     } catch (error) {
         console.error('Error loading categories list:', error);
