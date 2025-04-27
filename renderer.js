@@ -2934,6 +2934,8 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
       }
       /* OVERRIDE: Make entries-container full width for asset spreadsheet */
       .entries-container {
+        display: block !important;
+        grid-template-columns: none !important;
         max-width: none !important;
         margin: 0 !important;
         width: 100% !important;
