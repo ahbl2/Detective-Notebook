@@ -300,6 +300,23 @@
         </div>
     </div>
 
+    <!-- Move/Delete Entries Modal -->
+    <div id="move-delete-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h2>Category Contains Entries</h2>
+            <p>This category contains entries. What would you like to do with them?</p>
+            <div style="margin-bottom: 1em;">
+                <label for="move-category-select">Move entries to:</label>
+                <select id="move-category-select"></select>
+            </div>
+            <div style="display: flex; gap: 1em; justify-content: flex-end;">
+                <button id="move-entries-btn" class="btn btn-primary">Move Entries</button>
+                <button id="delete-entries-btn" class="btn btn-danger">Delete Entries</button>
+                <button id="cancel-move-delete-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add this before renderer.js -->
     <script src="pagination.js"></script>
     <script src="renderer.js"></script>

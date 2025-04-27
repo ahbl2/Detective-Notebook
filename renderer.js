@@ -1790,120 +1790,125 @@ async function deleteCategory() {
         }
 
         // Check if category has entries
-        const entries = await window.api.getEntries();
-        const hasEntries = entries.some(entry => entry.categoryId === categoryId);
-        
+        const entries = await window.api.getEntries(categoryId);
+        const hasEntries = entries.length > 0;
         if (hasEntries) {
-            const moveEntries = confirm('This category contains entries. Would you like to move them to the default category?');
-            if (moveEntries) {
-                // Move entries to default category
-                const updatedEntries = entries.map(entry => 
-                    entry.categoryId === categoryId 
-                        ? { ...entry, categoryId: null }
-                        : entry
-                );
-                await window.api.saveEntries(updatedEntries);
-            } else {
-                // Delete entries in this category
-                const filteredEntries = entries.filter(entry => entry.categoryId !== categoryId);
-                await window.api.saveEntries(filteredEntries);
+            // Show custom modal
+            const modal = document.getElementById('move-delete-modal');
+            const select = document.getElementById('move-category-select');
+            const moveBtn = document.getElementById('move-entries-btn');
+            const deleteBtn = document.getElementById('delete-entries-btn');
+            const cancelBtn = document.getElementById('cancel-move-delete-btn');
+            // Populate dropdown with all categories except the one being deleted
+            select.innerHTML = '';
+            categories.filter(cat => cat.id !== categoryId).forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.name;
+                select.appendChild(option);
+            });
+            // Show modal
+            modal.style.display = 'block';
+            // Helper to close modal and remove listeners
+            function closeModal() {
+                modal.style.display = 'none';
+                moveBtn.onclick = null;
+                deleteBtn.onclick = null;
+                cancelBtn.onclick = null;
             }
+            // Move entries handler
+            moveBtn.onclick = async () => {
+                const targetCategoryId = select.value;
+                if (!targetCategoryId) return;
+                for (const entry of entries) {
+                    const updatedEntry = { ...entry, categoryId: targetCategoryId };
+                    await window.api.updateEntry(updatedEntry);
+                }
+                closeModal();
+                await finishDeleteCategory(categoryId);
+            };
+            // Delete entries handler
+            deleteBtn.onclick = async () => {
+                // Remove all entries in this category
+                for (const entry of entries) {
+                    if (entry.categoryId === categoryId) {
+                        await window.api.deleteEntry(entry.id);
+                    }
+                }
+                closeModal();
+                await finishDeleteCategory(categoryId);
+            };
+            // Cancel handler
+            cancelBtn.onclick = () => {
+                closeModal();
+            };
+            return; // Don't continue until modal action
+        } else {
+            await finishDeleteCategory(categoryId);
         }
-
-        // Remove category
-        categories = categories.filter(cat => cat.id !== categoryId);
-        await window.api.saveCategories(categories);
-        
-        // Close the modal first
-        const modal = document.getElementById('category-settings-modal');
-        if (modal) {
-            modal.style.display = 'none';
-        }
-
-        // Clear any existing overlays
-        document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(el => el.remove());
-        
-        // Reset document and body states
-        document.documentElement.style.pointerEvents = 'auto';
-        document.body.style.pointerEvents = 'auto';
-        document.body.style.overflow = 'auto';
-        document.body.classList.remove('modal-open');
-        
-        // Re-enable all inputs
-        document.querySelectorAll('input, textarea').forEach(input => {
-            input.style.pointerEvents = 'auto';
-            input.style.userSelect = 'text';
-            input.disabled = false;
-        });
-
-        // Remove any event listeners that might be blocking
-        document.removeEventListener('keydown', handleKeyDown, true);
-        document.removeEventListener('keyup', handleKeyUp, true);
-        document.removeEventListener('keypress', handleKeyPress, true);
-        document.removeEventListener('click', handleClick, true);
-        
-        // Re-add normal event listeners
-        document.addEventListener('keydown', handleKeyDown);
-        document.addEventListener('keyup', handleKeyUp);
-        document.addEventListener('keypress', handleKeyPress);
-        document.addEventListener('click', handleClick);
-
-        // Clear any text selection
-        if (window.getSelection) {
-            window.getSelection().removeAllRanges();
-        }
-
-        // Force a DOM reflow
-        void document.body.offsetHeight;
-        
-        // Refresh categories
-        await refreshCategories();
-        
-        // Focus the search input
-        const searchInput = document.querySelector('#search');
-        if (searchInput) {
-            // Clone and replace the search input to ensure clean state
-            const newSearchInput = searchInput.cloneNode(true);
-            searchInput.parentNode.replaceChild(newSearchInput, searchInput);
-            // Small delay to ensure DOM is ready
-            setTimeout(() => {
-                newSearchInput.focus();
-                // Trigger a click to ensure focus is properly set
-                newSearchInput.click();
-            }, 100);
-        }
-
-        // Show success notification
-        showNotification('Category deleted successfully', 'success');
-
     } catch (error) {
         console.error('Error deleting category:', error);
         showNotification('Failed to delete category. Please try again.', 'error');
-        
-        // Ensure cleanup even on error
-        document.documentElement.style.pointerEvents = 'auto';
-        document.body.style.pointerEvents = 'auto';
-        const modal = document.getElementById('category-settings-modal');
-        if (modal) {
-            modal.style.display = 'none';
-        }
-
-        // Diagnostic logging: overlays and pointer-events
-        console.log('--- DIAGNOSTIC LOGGING AFTER CATEGORY DELETE ---');
-        // Log overlays still present
-        const overlays = Array.from(document.querySelectorAll('[style*="pointer-events: none"], .modal-backdrop, .modal-overlay'));
-        console.log('Overlays or elements with pointer-events: none:', overlays);
-        // Log computed styles for body and html
-        const bodyStyles = window.getComputedStyle(document.body);
-        const htmlStyles = window.getComputedStyle(document.documentElement);
-        console.log('BODY pointer-events:', bodyStyles.pointerEvents, 'user-select:', bodyStyles.userSelect);
-        console.log('HTML pointer-events:', htmlStyles.pointerEvents, 'user-select:', htmlStyles.userSelect);
-        // Log currently focused element
-        console.log('Currently focused element:', document.activeElement);
-        // Log all disabled inputs
-        const disabledInputs = Array.from(document.querySelectorAll('input:disabled, textarea:disabled'));
-        console.log('Disabled inputs:', disabledInputs);
+        // ... existing diagnostic logging ...
     }
+}
+
+// Helper to finish deleting the category after entries are handled
+async function finishDeleteCategory(categoryId) {
+    // Remove category
+    categories = categories.filter(cat => cat.id !== categoryId);
+    await window.api.saveCategories(categories);
+    // Close the modal first
+    const modal = document.getElementById('category-settings-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    // Clear any existing overlays
+    document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(el => el.remove());
+    // Reset document and body states
+    document.documentElement.style.pointerEvents = 'auto';
+    document.body.style.pointerEvents = 'auto';
+    document.body.style.overflow = 'auto';
+    document.body.classList.remove('modal-open');
+    // Re-enable all inputs
+    document.querySelectorAll('input, textarea').forEach(input => {
+        input.style.pointerEvents = 'auto';
+        input.style.userSelect = 'text';
+        input.disabled = false;
+    });
+    // Remove any event listeners that might be blocking
+    document.removeEventListener('keydown', handleKeyDown, true);
+    document.removeEventListener('keyup', handleKeyUp, true);
+    document.removeEventListener('keypress', handleKeyPress, true);
+    document.removeEventListener('click', handleClick, true);
+    // Re-add normal event listeners
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    document.addEventListener('keypress', handleKeyPress);
+    document.addEventListener('click', handleClick);
+    // Clear any text selection
+    if (window.getSelection) {
+        window.getSelection().removeAllRanges();
+    }
+    // Force a DOM reflow
+    void document.body.offsetHeight;
+    // Refresh categories
+    await refreshCategories();
+    // Focus the search input
+    const searchInput = document.querySelector('#search');
+    if (searchInput) {
+        // Clone and replace the search input to ensure clean state
+        const newSearchInput = searchInput.cloneNode(true);
+        searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+            newSearchInput.focus();
+            // Trigger a click to ensure focus is properly set
+            newSearchInput.click();
+        }, 100);
+    }
+    // Show success notification
+    showNotification('Category deleted successfully', 'success');
 }
 
 async function hideCategoryModal() {
@@ -1995,20 +2000,9 @@ async function loadCategoriesList() {
                     trashIcon.style.cursor = 'pointer';
                     trashIcon.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        if (confirm('Are you sure you want to delete this category? All entries in this category will be moved to the default category.')) {
-                            try {
-                                await window.api.deleteCategory(category.id);
-                                await refreshCategories();
-                                loadCategoriesList();
-                                resetCategoryForm();
-                                showNotification('Category deleted successfully', 'success');
-                                await resetWindowAndInputState();
-                                setupEventListeners();
-                            } catch (error) {
-                                console.error('Error deleting category:', error);
-                                showNotification('Error deleting category', 'error');
-                            }
-                        }
+                        // Use the custom deleteCategory function for prompts and logic
+                        document.getElementById('categoryId').value = category.id;
+                        await deleteCategory();
                     });
                     item.appendChild(trashIcon);
                 }

@@ -1436,7 +1436,7 @@ ipcMain.handle('get-dashboard-data', () => {
 // Category management
 ipcMain.handle('save-categories', async (event, categories) => {
     try {
-        await fs.writeFile(
+        await fs.promises.writeFile(
             path.join(app.getPath('userData'), 'categories.json'),
             JSON.stringify(categories, null, 2)
         );
@@ -1450,8 +1450,8 @@ ipcMain.handle('save-categories', async (event, categories) => {
 ipcMain.handle('load-categories', async () => {
     try {
         const categoriesPath = path.join(app.getPath('userData'), 'categories.json');
-        if (await fs.access(categoriesPath).then(() => true).catch(() => false)) {
-            const data = await fs.readFile(categoriesPath, 'utf8');
+        if (await fs.promises.access(categoriesPath).then(() => true).catch(() => false)) {
+            const data = await fs.promises.readFile(categoriesPath, 'utf8');
             return JSON.parse(data);
         }
         return [];
