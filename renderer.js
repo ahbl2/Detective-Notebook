@@ -18,6 +18,8 @@ let currentFilePath = null;
 let currentFiles = [];
 let pendingFiles = [];
 let categories = [];
+let currentPage = 1;
+let itemsPerPage = 15;
 
 // Category Settings Modal Management
 let selectedCategoryId = null;
@@ -500,18 +502,55 @@ function renderEntries(entriesToRender = entries) {
     entriesGrid.className = 'entries-grid';
     contentWrapper.appendChild(entriesGrid);
 
-    // Initial render with default sort (alphabetical by title)
-    const sortedEntries = sortEntries(entriesToRender || [], 'title');
-    renderEntriesList(sortedEntries);
+    // Calculate pagination
+    const totalPages = Math.ceil(entriesToRender.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, entriesToRender.length);
+    const paginatedEntries = entriesToRender.slice(startIndex, endIndex);
 
-    // Add sort change listener after elements are in the DOM
-    const sortSelect = document.getElementById('entrySortSelect');
-    if (sortSelect) {
-        sortSelect.addEventListener('change', () => {
-            const sortedEntries = sortEntries(entriesToRender || [], sortSelect.value);
-            renderEntriesList(sortedEntries);
+    // Render paginated entries
+    if (paginatedEntries.length === 0) {
+        entriesGrid.innerHTML = `
+            <div class="no-entries">
+                <i class="fas fa-inbox"></i>
+                <p>No entries found in this category.</p>
+                <button class="add-entry-btn">
+                    <i class="fas fa-plus"></i>
+                    Add Entry
+                </button>
+            </div>
+        `;
+    } else {
+        paginatedEntries.forEach(entry => {
+            const entryElement = createEntryElement(entry);
+            entriesGrid.appendChild(entryElement);
         });
     }
+
+    // Add pagination controls if there are multiple pages
+    if (totalPages > 1) {
+        const paginationContainer = document.createElement('div');
+        paginationContainer.className = 'pagination-container';
+        // Remove inline styles so CSS can control layout
+
+        const pagination = new Pagination({
+            container: paginationContainer,
+            totalItems: entriesToRender.length,
+            currentPage: currentPage,
+            pageSize: itemsPerPage,
+            onPageChange: (page) => {
+                currentPage = page;
+                renderEntries(entriesToRender);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        });
+
+        // Append pagination as a grid item inside entriesGrid
+        entriesGrid.appendChild(paginationContainer);
+    }
+
+    // Add event listeners
+    // setupEntryEventListeners();
 }
 
 // Function to sort entries based on selected criteria

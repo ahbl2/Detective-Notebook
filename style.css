@@ -2061,4 +2061,55 @@ body {
   max-height: 350px;
   overflow-y: auto;
   padding-right: 8px;
+}
+
+/* Pagination Styles */
+.pagination-container {
+    grid-column: 2 / 3;
+    margin-top: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.pagination-btn {
+    padding: 8px 16px;
+    margin: 0 4px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pagination-btn:hover {
+    background: #f5f5f5;
+    border-color: #ccc;
+}
+
+.pagination-btn.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-ellipsis {
+    padding: 8px;
+    color: #666;
+}
+
+@media (max-width: 1024px) {
+    .pagination-container {
+        grid-column: 1 / -1;
+    }
 } 
