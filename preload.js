@@ -72,6 +72,16 @@ contextBridge.exposeInMainWorld(
         if (validChannels.includes(channel)) {
             return ipcRenderer.invoke(channel, data);
         }
-    }
+    },
+    // Asset Manager operations
+    getAssetTypes: () => ipcRenderer.invoke('get-asset-types'),
+    addAssetType: (data) => ipcRenderer.invoke('add-asset-type', data),
+    updateAssetType: (data) => ipcRenderer.invoke('update-asset-type', data),
+    deleteAssetType: (id) => ipcRenderer.invoke('delete-asset-type', id),
+    getAssets: (type_id) => ipcRenderer.invoke('get-assets', type_id),
+    addAsset: (data) => ipcRenderer.invoke('add-asset', data),
+    updateAsset: (data) => ipcRenderer.invoke('update-asset', data),
+    deleteAsset: (id) => ipcRenderer.invoke('delete-asset', id),
+    exportAssetsToCSV: (data) => ipcRenderer.invoke('export-assets-to-csv', data)
   }
 ); 

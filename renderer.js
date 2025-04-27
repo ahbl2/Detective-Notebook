@@ -28,6 +28,91 @@ let currentCategorySort = 'title';
 // Category Settings Modal Management
 let selectedCategoryId = null;
 
+// Modular Section System
+const sections = [
+  { name: 'The Guide', id: 'guide', icon: 'fa-book', isGuide: true },
+  { name: 'Templates', id: 'templates', icon: 'fa-file-alt', render: renderTemplatesPage },
+  { name: 'Asset Manager', id: 'assets', icon: 'fa-briefcase', render: renderAssetManagerPage },
+  { name: 'Help', id: 'help', icon: 'fa-question-circle', render: renderHelpPage },
+];
+let currentSection = 'guide';
+let guideDropdownOpen = false;
+
+// Asset Manager navigation state
+let assetManagerView = 'list'; // 'list' or 'type'
+let selectedAssetTypeId = null;
+
+function renderSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const nav = sidebar.querySelector('.category-nav');
+  nav.innerHTML = `
+    <div class="section-list">
+      ${sections.map(section => {
+        if (section.isGuide) {
+          return `
+            <div class="section-item${currentSection === 'guide' ? ' active' : ''}" data-id="guide">
+              <h3><i class="fas ${section.icon}"></i> ${section.name} <span class="dropdown-arrow">${guideDropdownOpen ? '▼' : '►'}</span></h3>
+            </div>
+            <div class="category-list" style="display:${guideDropdownOpen ? 'block' : 'none'}"></div>
+          `;
+        } else {
+          return `
+            <div class="section-item${currentSection === section.id ? ' active' : ''}" data-id="${section.id}">
+              <h3><i class="fas ${section.icon}"></i> ${section.name}</h3>
+            </div>
+          `;
+        }
+      }).join('')}
+    </div>
+  `;
+  // Section click events
+  nav.querySelectorAll('.section-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const sectionId = item.dataset.id;
+      if (sectionId === 'guide') {
+        guideDropdownOpen = !guideDropdownOpen;
+        renderSidebar();
+        if (guideDropdownOpen) {
+          const categories = await window.api.getCategories();
+          renderCategories(categories);
+        }
+      } else {
+        currentSection = sectionId;
+        currentCategory = null;
+        guideDropdownOpen = false;
+        renderSidebar();
+        await renderSection(sectionId);
+      }
+    });
+  });
+  // Render categories if Guide dropdown is open
+  if (guideDropdownOpen) {
+    window.api.getCategories().then(renderCategories);
+  }
+}
+
+async function renderSection(sectionId) {
+  const section = sections.find(s => s.id === sectionId);
+  if (section && typeof section.render === 'function') {
+    await section.render();
+  }
+}
+
+// Placeholder renderers for new sections
+async function renderTemplatesPage() {
+  entriesContainer.innerHTML = `<div class="section-placeholder"><h2><i class="fas fa-file-alt"></i> Templates</h2><p>Templates section coming soon.</p></div>`;
+}
+async function renderAssetManagerPage() {
+  if (assetManagerView === 'list') {
+    await renderAssetTypesCardsPage();
+  } else if (assetManagerView === 'type' && selectedAssetTypeId) {
+    await renderAssetTypeSpreadsheetPage(selectedAssetTypeId);
+  }
+}
+async function renderHelpPage() {
+  entriesContainer.innerHTML = `<div class="section-placeholder"><h2><i class="fas fa-question-circle"></i> Help</h2><p>Help section coming soon.</p></div>`;
+}
+
 // Initialize the app
 async function initApp() {
     try {
@@ -360,39 +445,37 @@ function setupEventListeners() {
 
 // Render categories in the sidebar
 function renderCategories(categories) {
-    categoryList.innerHTML = `
-        <div class="category-item ${!currentCategory ? 'active' : ''}" data-id="dashboard">
-            <h3><i class="fas fa-home"></i> Dashboard</h3>
-            <span class="entry-count">Home</span>
-        </div>
-        ${categories.map(category => `
-            <div class="category-item ${category.id === currentCategory ? 'active' : ''}" 
-                 data-id="${category.id}"
-                 style="--category-color: ${category.color || '#3498db'}">
-                <h3><i class="fas fa-${category.icon || 'folder'}"></i> ${category.name}</h3>
-                <span class="entry-count">${category.entryCount || 0} entries</span>
-            </div>
-        `).join('')}
-    `;
-
-    // Add click event to categories
-    document.querySelectorAll('.category-item').forEach(item => {
-        item.addEventListener('click', async () => {
-            const categoryId = item.dataset.id;
-            
-            // Update active state
-            document.querySelectorAll('.category-item').forEach(i => i.classList.remove('active'));
-            item.classList.add('active');
-
-            if (categoryId === 'dashboard') {
-                currentCategory = null;
-                await renderDashboard();
-            } else {
-                currentCategory = categoryId;
-                await loadEntries(currentCategory);
-            }
-        });
+  const categoryListDiv = document.querySelector('.category-list');
+  if (!categoryListDiv) return;
+  categoryListDiv.innerHTML = `
+    <div class="category-item${!currentCategory ? ' active' : ''}" data-id="dashboard">
+      <h3><i class="fas fa-home"></i> Dashboard</h3>
+      <span class="entry-count">Home</span>
+    </div>
+    ${categories.map(category => `
+      <div class="category-item${currentCategory === category.id ? ' active' : ''}" data-id="${category.id}" style="--category-color: ${category.color || '#3498db'}">
+        <h3><i class="fas fa-${category.icon || 'folder'}"></i> ${category.name}</h3>
+        <span class="entry-count">${category.entryCount || 0} entries</span>
+      </div>
+    `).join('')}
+  `;
+  categoryListDiv.querySelectorAll('.category-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const categoryId = item.dataset.id;
+      if (categoryId === 'dashboard') {
+        currentCategory = null;
+        currentSection = 'guide';
+        renderSidebar();
+        await renderDashboard();
+      } else {
+        currentCategory = categoryId;
+        currentSection = 'guide';
+        renderSidebar();
+        await loadEntries(categoryId);
+      }
     });
+  });
 }
 
 // Load entries for a category
@@ -1665,23 +1748,20 @@ async function renderDashboard() {
 // Initialize the app when the DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        // Load config
         config = await window.api.getConfig();
         updateDeviceInfo();
-        
-        // Set up event listeners
         setupEventListeners();
-        
-        // Initialize modal
         initializeModal();
-        
-        // Load categories for sidebar
-        const categories = await window.api.getCategories();
-        renderCategories(categories);
-        
-        // Start with dashboard view
-        await renderDashboard();
-        
+        renderSidebar();
+        // Default: open Guide and select first category
+        if (guideDropdownOpen) {
+          const categories = await window.api.getCategories();
+          if (categories.length > 0) {
+            currentCategory = categories[0].id;
+            renderSidebar();
+            await loadEntries(currentCategory);
+          }
+        }
     } catch (error) {
         console.error('Error initializing app:', error);
         showNotification('Error initializing application', 'error');
@@ -2696,4 +2776,703 @@ function restoreInputAndFocusState() {
         searchInput.focus();
         searchInput.select();
     }
+}
+
+async function renderAssetTypesSidebar() {
+  const listDiv = document.querySelector('.asset-types-list');
+  const types = await window.api.getAssetTypes();
+  listDiv.innerHTML = types.length === 0 ? '<p>No asset types yet.</p>' : types.map(type => `
+    <div class="asset-type-item${selectedAssetTypeId === type.id ? ' active' : ''}" data-id="${type.id}">
+      <span><i class="fas fa-cube"></i> ${type.name}</span>
+      <div class="asset-type-actions">
+        <button class="btn btn-sm btn-secondary edit-type-btn" data-id="${type.id}"><i class="fas fa-edit"></i></button>
+        <button class="btn btn-sm btn-danger delete-type-btn" data-id="${type.id}"><i class="fas fa-trash"></i></button>
+      </div>
+    </div>
+  `).join('');
+  // Add click handlers
+  listDiv.querySelectorAll('.asset-type-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      if (e.target.closest('.edit-type-btn') || e.target.closest('.delete-type-btn')) return;
+      selectedAssetTypeId = item.dataset.id;
+      await renderAssetTypesSidebar();
+      await renderAssetTypeSpreadsheet();
+    });
+  });
+  listDiv.querySelectorAll('.edit-type-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const type = types.find(t => t.id === id);
+      showAssetTypeModal(type);
+    });
+  });
+  listDiv.querySelectorAll('.delete-type-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (confirm('Delete this asset type? This will not delete existing assets.')) {
+        await window.api.deleteAssetType(id);
+        if (selectedAssetTypeId === id) selectedAssetTypeId = null;
+        await renderAssetTypesSidebar();
+        await renderAssetTypeSpreadsheet();
+      }
+    });
+  });
+  document.getElementById('add-asset-type-btn').onclick = () => showAssetTypeModal();
+  await renderAssetTypeSpreadsheet();
+}
+
+async function renderAssetTypeSpreadsheetPage(typeId) {
+  const types = await window.api.getAssetTypes();
+  const type = types.find(t => t.id === typeId);
+  if (!type) {
+    assetManagerView = 'list';
+    await renderAssetManagerPage();
+    return;
+  }
+  entriesContainer.innerHTML = `
+    <div class="asset-type-sheet-container">
+      <div class="asset-type-sheet-header-row">
+        <button class="btn btn-secondary" id="back-to-types-btn"><i class="fas fa-arrow-left"></i> Back to Asset Types</button>
+        <h2 class="asset-type-sheet-title"><i class="fas fa-cube"></i> ${type.name}</h2>
+      </div>
+      <div class="asset-type-sheet-controls">
+        <input type="text" id="asset-search" placeholder="Search assets...">
+        <button class="btn btn-secondary" id="export-assets-btn"><i class="fas fa-file-csv"></i> Export CSV</button>
+        <button class="btn btn-primary" id="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
+      </div>
+      <div class="assets-list"></div>
+      <div id="asset-modal" class="modal" style="display:none;"></div>
+    </div>
+  `;
+  document.getElementById('back-to-types-btn').onclick = () => {
+    assetManagerView = 'list';
+    selectedAssetTypeId = null;
+    renderAssetManagerPage();
+  };
+  // Asset table logic
+  let allAssets = await window.api.getAssets(type.id);
+  let filteredAssets = allAssets;
+  let sortField = type.fields[0] || null;
+  let sortAsc = true;
+  const assetsList = document.querySelector('.assets-list');
+  const searchInput = document.getElementById('asset-search');
+  // Sorting handler
+  function sortAssets(field) {
+    if (sortField === field) sortAsc = !sortAsc;
+    else { sortField = field; sortAsc = true; }
+    filteredAssets.sort((a, b) => {
+      const av = (a.field_values[field] || '').toLowerCase();
+      const bv = (b.field_values[field] || '').toLowerCase();
+      if (av < bv) return sortAsc ? -1 : 1;
+      if (av > bv) return sortAsc ? 1 : -1;
+      return 0;
+    });
+    renderAssetsTable(type, filteredAssets, assetsList, allAssets, sortField, sortAsc);
+    // Fix: set Add Asset button handler in empty state if it exists
+    const emptyAddBtn = document.getElementById('empty-add-asset-btn');
+    if (emptyAddBtn) emptyAddBtn.onclick = () => showAssetModal(type);
+  }
+  // Search handler
+  searchInput.oninput = () => {
+    const q = searchInput.value.trim().toLowerCase();
+    filteredAssets = allAssets.filter(asset =>
+      type.fields.some(f => (asset.field_values[f] || '').toLowerCase().includes(q))
+    );
+    renderAssetsTable(type, filteredAssets, assetsList, allAssets, sortField, sortAsc);
+    // Fix: set Add Asset button handler in empty state if it exists
+    const emptyAddBtn = document.getElementById('empty-add-asset-btn');
+    if (emptyAddBtn) emptyAddBtn.onclick = () => showAssetModal(type);
+  };
+  // Initial table render
+  renderAssetsTable(type, filteredAssets, assetsList, allAssets, sortField, sortAsc, sortAssets);
+  // Add asset handler
+  const addAssetBtn = document.getElementById('add-asset-btn');
+  if (addAssetBtn) addAssetBtn.onclick = () => showAssetModal(type);
+  // Export CSV handler
+  document.getElementById('export-assets-btn').onclick = async () => {
+    if (!type || filteredAssets.length === 0) {
+      showNotification('No assets to export.', 'error');
+      return;
+    }
+    try {
+      await window.api.exportAssetsToCSV({ type, assets: filteredAssets });
+      showNotification('Assets exported to CSV in /exports/', 'success');
+    } catch (err) {
+      showNotification('Failed to export assets: ' + err.message, 'error');
+    }
+  };
+  // Add modern styles for the asset type spreadsheet layout
+  if (!document.getElementById('asset-type-sheet-styles')) {
+    const style = document.createElement('style');
+    style.id = 'asset-type-sheet-styles';
+    style.textContent = `
+      .asset-type-sheet-container {
+        width: 100%;
+        margin: 2.5rem 0 0 0;
+        padding: 0 0 2.5rem 0;
+        display: block;
+      }
+      .assets-list {
+        width: 100%;
+        display: block;
+      }
+      .assets-table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+        display: block;
+      }
+      .assets-table-modern {
+        width: 100%;
+        min-width: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 1.05rem;
+        background: transparent;
+        display: table;
+      }
+      /* OVERRIDE: Make entries-container full width for asset spreadsheet */
+      .entries-container {
+        max-width: none !important;
+        margin: 0 !important;
+        width: 100% !important;
+        padding: 0 !important;
+      }
+      /* OVERRIDE: Remove card styles from asset spreadsheet */
+      .assets-table-wrapper, .assets-table-modern {
+        background: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        min-width: 0 !important;
+        max-width: none !important;
+      }
+      .asset-type-sheet-container {
+        background: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        min-width: 0 !important;
+        max-width: none !important;
+      }
+      @media (max-width: 900px) {
+        .asset-type-sheet-header-row, .asset-type-sheet-controls, .assets-list { padding-left: 0.5rem; }
+      }
+      @media (max-width: 600px) {
+        .asset-type-sheet-header-row { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
+        .asset-type-sheet-controls { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
+        .asset-type-sheet-container { padding: 0.5rem 0.1rem 1rem 0.1rem; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+function renderAssetsTable(type, assets, container, allAssets, sortField, sortAsc, sortAssets) {
+  let table = `<div class="assets-table-wrapper"><table class="assets-table-modern"><thead><tr>`;
+  type.fields.forEach(f => {
+    table += `<th class="sortable" data-field="${f}">${f} <span class="sort-icon">${sortField === f ? (sortAsc ? '▲' : '▼') : ''}</span></th>`;
+  });
+  table += `<th>Actions</th></tr></thead><tbody>`;
+  if (assets.length === 0) {
+    table += `<tr><td colspan="${type.fields.length + 1}" class="empty-row">No assets found. <button class='btn btn-primary btn-sm' id='empty-add-asset-btn'><i class='fas fa-plus'></i> Add Asset</button></td></tr>`;
+  } else {
+    assets.forEach(asset => {
+      table += '<tr>';
+      type.fields.forEach(f => {
+        table += `<td>${asset.field_values[f] || ''}</td>`;
+      });
+      table += `<td class="actions-cell">
+        <button class="btn btn-sm btn-secondary edit-asset-btn" data-id="${asset.id}" title="Edit"><i class="fas fa-edit"></i></button>
+        <button class="btn btn-sm btn-danger delete-asset-btn" data-id="${asset.id}" title="Delete"><i class="fas fa-trash"></i></button>
+      </td></tr>`;
+    });
+  }
+  table += '</tbody></table></div>';
+  container.innerHTML = table;
+  // Sorting handlers
+  container.querySelectorAll('th.sortable').forEach(th => {
+    th.onclick = () => sortAssets && sortAssets(th.dataset.field);
+    th.style.cursor = 'pointer';
+    th.title = 'Sort by ' + th.dataset.field;
+  });
+  // Edit/delete handlers
+  container.querySelectorAll('.edit-asset-btn').forEach(btn => {
+    btn.onclick = () => {
+      const asset = allAssets.find(a => a.id === btn.dataset.id);
+      showAssetModal(type, asset);
+    };
+  });
+  container.querySelectorAll('.delete-asset-btn').forEach(btn => {
+    btn.onclick = async () => {
+      if (confirm('Delete this asset?')) {
+        await window.api.deleteAsset(btn.dataset.id);
+        await renderAssetTypeSpreadsheetPage(type.id);
+      }
+    };
+  });
+  // Add asset from empty state
+  const emptyAddBtn = container.querySelector('#empty-add-asset-btn');
+  if (emptyAddBtn) emptyAddBtn.onclick = () => showAssetModal(type);
+}
+
+// Inject modern styles for asset spreadsheet if not present
+if (!document.getElementById('asset-spreadsheet-styles')) {
+  const style = document.createElement('style');
+  style.id = 'asset-spreadsheet-styles';
+  style.textContent = `
+    .asset-type-spreadsheet-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      padding: 2rem 2.5rem 2.5rem 2.5rem;
+      margin: 2rem auto;
+      max-width: 1100px;
+      min-width: 320px;
+      position: relative;
+    }
+    .asset-type-page-header {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .asset-type-page-header h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0;
+      color: #222;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .assets-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .assets-actions input[type="text"] {
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      border: 1px solid #d0d7de;
+      font-size: 1rem;
+      min-width: 180px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    .assets-actions input[type="text"]:focus {
+      border: 1.5px solid #3498db;
+    }
+    .assets-table-wrapper {
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #fafbfc;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+      margin-top: 0.5rem;
+    }
+    .assets-table-modern {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 1.05rem;
+      background: transparent;
+      min-width: 600px;
+    }
+    .assets-table-modern thead th {
+      background: #f3f6fa;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      font-weight: 600;
+      padding: 0.85rem 1rem;
+      border-bottom: 2px solid #e1e4e8;
+      text-align: left;
+      user-select: none;
+      font-size: 1.08rem;
+      letter-spacing: 0.01em;
+    }
+    .assets-table-modern th.sortable:hover {
+      background: #eaf6ff;
+      color: #3498db;
+    }
+    .assets-table-modern th .sort-icon {
+      font-size: 0.9em;
+      margin-left: 0.25em;
+      color: #888;
+    }
+    .assets-table-modern tbody tr {
+      transition: background 0.15s;
+    }
+    .assets-table-modern tbody tr:nth-child(even) {
+      background: #f8fafb;
+    }
+    .assets-table-modern tbody tr:nth-child(odd) {
+      background: #fff;
+    }
+    .assets-table-modern tbody tr:hover {
+      background: #eaf6ff;
+    }
+    .assets-table-modern td, .assets-table-modern th {
+      padding: 0.75rem 1rem;
+      vertical-align: middle;
+      border: none;
+    }
+    .assets-table-modern td.actions-cell {
+      text-align: right;
+      min-width: 120px;
+    }
+    .assets-table-modern .edit-asset-btn, .assets-table-modern .delete-asset-btn {
+      margin-right: 0.25rem;
+      margin-left: 0.25rem;
+      border-radius: 5px;
+      padding: 0.35em 0.7em;
+      font-size: 1em;
+      transition: background 0.15s, color 0.15s;
+    }
+    .assets-table-modern .edit-asset-btn:hover {
+      background: #eaf6ff;
+      color: #3498db;
+    }
+    .assets-table-modern .delete-asset-btn:hover {
+      background: #ffeaea;
+      color: #e74c3c;
+    }
+    .assets-table-modern .edit-asset-btn[title], .assets-table-modern .delete-asset-btn[title] {
+      position: relative;
+    }
+    .assets-table-modern .edit-asset-btn[title]:hover:after, .assets-table-modern .delete-asset-btn[title]:hover:after {
+      content: attr(title);
+      position: absolute;
+      left: 50%;
+      top: 120%;
+      transform: translateX(-50%);
+      background: #222;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      white-space: nowrap;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .assets-table-modern td.empty-row {
+      text-align: center;
+      color: #888;
+      font-size: 1.1em;
+      padding: 2.5rem 1rem;
+      background: #f8fafb;
+    }
+    @media (max-width: 900px) {
+      .asset-type-spreadsheet-card {
+        padding: 1rem 0.5rem 2rem 0.5rem;
+        max-width: 100vw;
+      }
+      .assets-table-modern {
+        font-size: 0.98rem;
+        min-width: 400px;
+      }
+      .asset-type-page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+    }
+    @media (max-width: 600px) {
+      .assets-table-modern th, .assets-table-modern td {
+        padding: 0.5rem 0.4rem;
+      }
+      .asset-type-spreadsheet-card {
+        padding: 0.5rem 0.1rem 1rem 0.1rem;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Add this function to fix the ReferenceError for Asset Manager
+async function renderAssetTypesCardsPage() {
+  const types = await window.api.getAssetTypes();
+  const itemsPerPage = 9;
+  const totalPages = Math.ceil(types.length / itemsPerPage);
+  let currentPage = 1;
+
+  // Hide Add Entry button and show Add Asset Type button in the top right (global position)
+  const addEntryBtn = document.querySelector('.add-entry-btn');
+  if (addEntryBtn) addEntryBtn.style.display = 'none';
+  let addAssetTypeBtn = document.getElementById('add-asset-type-btn-global');
+  if (!addAssetTypeBtn) {
+    addAssetTypeBtn = document.createElement('button');
+    addAssetTypeBtn.id = 'add-asset-type-btn-global';
+    addAssetTypeBtn.className = 'btn btn-primary add-asset-type-btn-global';
+    addAssetTypeBtn.innerHTML = '<i class="fas fa-plus"></i> Add Asset Type';
+    addAssetTypeBtn.style.position = 'fixed';
+    addAssetTypeBtn.style.top = '2.2rem';
+    addAssetTypeBtn.style.right = '2.5rem';
+    addAssetTypeBtn.style.zIndex = '1000';
+    addAssetTypeBtn.style.display = '';
+    document.body.appendChild(addAssetTypeBtn);
+  }
+  addAssetTypeBtn.style.display = '';
+  addAssetTypeBtn.onclick = () => showAssetTypeModal();
+
+  function renderPage(page) {
+    currentPage = page;
+    const start = (page - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    const paginatedTypes = types.slice(start, end);
+    entriesContainer.innerHTML = `
+      <div class="asset-types-header-bar">
+        <div class="asset-types-title"><i class="fas fa-cube"></i> Asset Types</div>
+      </div>
+      <div class="asset-types-grid">
+        ${paginatedTypes.length === 0 ? '<p class="no-asset-types">No asset types yet.</p>' : paginatedTypes.map(type => `
+          <div class="asset-type-card" data-id="${type.id}">
+            <div class="asset-type-card-header">
+              <span class="asset-type-name">${type.name}</span>
+              <div class="asset-type-card-actions">
+                <button class="btn btn-sm btn-secondary edit-type-btn" data-id="${type.id}" title="Edit"><i class="fas fa-edit"></i></button>
+                <button class="btn btn-sm btn-danger delete-type-btn" data-id="${type.id}" title="Delete"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+            <div class="asset-type-fields">${type.fields.map(f => `<span class="asset-type-field">${f}</span>`).join(' ')}</div>
+          </div>
+        `).join('')}
+      </div>
+      ${totalPages > 1 ? `<div class="pagination-container">${Array.from({length: totalPages}, (_, i) => `<button class="pagination-btn${i+1===currentPage?' active':''}" data-page="${i+1}">${i+1}</button>`).join('')}</div>` : ''}
+    `;
+    // Card click handlers (open spreadsheet view)
+    document.querySelectorAll('.asset-type-card').forEach(card => {
+      card.addEventListener('click', e => {
+        if (e.target.closest('.edit-type-btn') || e.target.closest('.delete-type-btn')) return;
+        selectedAssetTypeId = card.dataset.id;
+        assetManagerView = 'type';
+        renderAssetManagerPage();
+      });
+    });
+    // Edit button handlers
+    document.querySelectorAll('.edit-type-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        const type = types.find(t => t.id === id);
+        showAssetTypeModal(type);
+      });
+    });
+    // Delete button handlers
+    document.querySelectorAll('.delete-type-btn').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        if (confirm('Delete this asset type? This will not delete existing assets.')) {
+          await window.api.deleteAssetType(id);
+          if (selectedAssetTypeId === id) selectedAssetTypeId = null;
+          await renderAssetTypesCardsPage();
+        }
+      });
+    });
+    // Pagination handlers
+    document.querySelectorAll('.pagination-btn').forEach(btn => {
+      btn.onclick = () => renderPage(Number(btn.dataset.page));
+    });
+  }
+  renderPage(1);
+  // Remove old style if present
+  const oldStyle = document.getElementById('asset-types-card-styles');
+  if (oldStyle) oldStyle.remove();
+  // Add modern styles for the grid and header only (no big card container)
+  const style = document.createElement('style');
+  style.id = 'asset-types-card-styles';
+  style.textContent = `
+    .add-asset-type-btn-global {
+      position: fixed !important;
+      top: 2.2rem !important;
+      right: 2.5rem !important;
+      z-index: 1000 !important;
+      font-size: 1.08rem;
+      padding: 0.55em 1.3em;
+      border-radius: 7px;
+      font-weight: 600;
+      background: #3498db;
+      color: #fff;
+      border: none;
+      box-shadow: 0 1px 4px rgba(52,152,219,0.08);
+      transition: background 0.15s, color 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      cursor: pointer;
+    }
+    .add-asset-type-btn-global:hover {
+      background: #217dbb;
+      color: #fff;
+    }
+    .asset-types-header-bar {
+      max-width: 1100px;
+      margin: 2.5rem auto 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 0 0.5rem;
+      gap: 1.5rem;
+    }
+    .asset-types-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #222;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .asset-types-grid {
+      max-width: 1100px;
+      margin: 1.5rem auto 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      width: 100%;
+    }
+    .asset-type-card {
+      background: #f8fafb;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      padding: 1.2rem 1.2rem 1rem 1.2rem;
+      cursor: pointer;
+      transition: box-shadow 0.15s, transform 0.15s;
+      border: 1px solid #e1e4e8;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .asset-type-card:hover {
+      box-shadow: 0 4px 16px rgba(52,152,219,0.10);
+      transform: translateY(-2px) scale(1.01);
+      border-color: #3498db33;
+    }
+    .asset-type-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.7rem;
+    }
+    .asset-type-name {
+      font-weight: 600;
+      font-size: 1.15rem;
+      color: #222;
+      word-break: break-word;
+    }
+    .asset-type-card-actions {
+      display: flex;
+      gap: 0.3rem;
+    }
+    .asset-type-fields {
+      margin-top: 0.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .asset-type-field {
+      background: #eaf6ff;
+      color: #3498db;
+      border-radius: 5px;
+      padding: 0.2em 0.7em;
+      font-size: 0.98em;
+      margin-bottom: 0.2em;
+    }
+    .no-asset-types {
+      color: #888;
+      font-size: 1.1em;
+      text-align: center;
+      grid-column: 1/-1;
+    }
+    .pagination-container {
+      display: flex;
+      justify-content: center;
+      margin: 2rem 0 0 0;
+      gap: 0.5rem;
+    }
+    .pagination-btn {
+      background: #f3f6fa;
+      border: none;
+      border-radius: 5px;
+      padding: 0.5em 1.1em;
+      font-size: 1.05em;
+      color: #3498db;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .pagination-btn.active, .pagination-btn:hover {
+      background: #3498db;
+      color: #fff;
+    }
+    @media (max-width: 900px) {
+      .asset-types-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+    }
+    @media (max-width: 600px) {
+      .asset-types-header-bar { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
+      .asset-types-grid { grid-template-columns: 1fr; gap: 0.7rem; }
+    }
+  `;
+  document.head.appendChild(style);
+  // Hide the Add Asset Type button when leaving the Asset Manager page
+  window._hideAddAssetTypeBtn = function() {
+    const btn = document.getElementById('add-asset-type-btn-global');
+    if (btn) btn.style.display = 'none';
+  };
+}
+
+// When showing dashboard or categories, hide the Add Asset Type button
+function showAddEntryButton() {
+  const addEntryBtn = document.querySelector('.add-entry-btn');
+  if (addEntryBtn) addEntryBtn.style.display = '';
+  if (window._hideAddAssetTypeBtn) window._hideAddAssetTypeBtn();
+}
+
+// Modal for adding/editing assets for a type
+function showAssetModal(type, asset = null) {
+  // Remove any existing modal
+  let modal = document.getElementById('asset-modal');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'asset-modal';
+  modal.className = 'modal';
+  modal.style.display = 'block';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width:500px;">
+      <span class="close" id="close-asset-modal" style="float:right;cursor:pointer;font-size:1.5em;">&times;</span>
+      <h2>${asset ? 'Edit' : 'Add'} Asset</h2>
+      <form id="asset-form">
+        ${type.fields.map(f => `
+          <div class="form-group">
+            <label for="asset-field-${f}">${f}</label>
+            <input type="text" id="asset-field-${f}" name="${f}" value="${asset ? (asset.field_values[f] || '') : ''}" style="width:100%;padding:0.5em;margin-bottom:1em;">
+          </div>
+        `).join('')}
+        <button type="submit" class="btn btn-primary">${asset ? 'Save' : 'Add'} Asset</button>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  // Close modal handler
+  document.getElementById('close-asset-modal').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  // Form submit handler
+  document.getElementById('asset-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const field_values = {};
+    type.fields.forEach(f => {
+      field_values[f] = document.getElementById('asset-field-' + f).value.trim();
+    });
+    if (asset) {
+      await window.api.updateAsset({ id: asset.id, type_id: type.id, field_values });
+    } else {
+      await window.api.addAsset({ type_id: type.id, field_values });
+    }
+    modal.remove();
+    await renderAssetTypeSpreadsheetPage(type.id);
+  };
 }

@@ -363,6 +363,22 @@ async function initializeApp() {
           UNIQUE(entry_id, device_id)
         )`);
 
+        // AssetTypes table
+        db.run(`CREATE TABLE IF NOT EXISTS AssetTypes (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          fields TEXT NOT NULL
+        )`);
+
+        // Assets table
+        db.run(`CREATE TABLE IF NOT EXISTS Assets (
+          id TEXT PRIMARY KEY,
+          type_id TEXT NOT NULL,
+          field_values TEXT NOT NULL,
+          created_at TEXT,
+          updated_at TEXT
+        )`);
+
         // Check if categories table is empty
         db.get('SELECT COUNT(*) as count FROM categories', (err, row) => {
           if (err) {
@@ -1547,6 +1563,82 @@ ipcMain.handle('force-input-reset', () => {
     });
 });
 
+// Asset Manager IPC handlers
+const parseFields = (fields) => Array.isArray(fields) ? fields : (typeof fields === 'string' ? JSON.parse(fields) : []);
+const parseFieldValues = (values) => typeof values === 'string' ? JSON.parse(values) : values;
+
+// Asset Types CRUD
+ipcMain.handle('get-asset-types', async () => {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM AssetTypes', (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows.map(row => ({ ...row, fields: parseFields(row.fields) })));
+    });
+  });
+});
+ipcMain.handle('add-asset-type', async (event, { name, fields }) => {
+  const id = uuidv4();
+  return new Promise((resolve, reject) => {
+    db.run('INSERT INTO AssetTypes (id, name, fields) VALUES (?, ?, ?)', [id, name, JSON.stringify(fields)], function(err) {
+      if (err) reject(err);
+      else resolve({ id, name, fields });
+    });
+  });
+});
+ipcMain.handle('update-asset-type', async (event, { id, name, fields }) => {
+  return new Promise((resolve, reject) => {
+    db.run('UPDATE AssetTypes SET name = ?, fields = ? WHERE id = ?', [name, JSON.stringify(fields), id], function(err) {
+      if (err) reject(err);
+      else resolve({ id, name, fields });
+    });
+  });
+});
+ipcMain.handle('delete-asset-type', async (event, id) => {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM AssetTypes WHERE id = ?', [id], function(err) {
+      if (err) reject(err);
+      else resolve({ success: true });
+    });
+  });
+});
+
+// Assets CRUD
+ipcMain.handle('get-assets', async (event, type_id) => {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM Assets WHERE type_id = ?', [type_id], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows.map(row => ({ ...row, field_values: parseFieldValues(row.field_values) })));
+    });
+  });
+});
+ipcMain.handle('add-asset', async (event, { type_id, field_values }) => {
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  return new Promise((resolve, reject) => {
+    db.run('INSERT INTO Assets (id, type_id, field_values, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [id, type_id, JSON.stringify(field_values), now, now], function(err) {
+      if (err) reject(err);
+      else resolve({ id, type_id, field_values, created_at: now, updated_at: now });
+    });
+  });
+});
+ipcMain.handle('update-asset', async (event, { id, type_id, field_values }) => {
+  const now = new Date().toISOString();
+  return new Promise((resolve, reject) => {
+    db.run('UPDATE Assets SET field_values = ?, updated_at = ? WHERE id = ?', [JSON.stringify(field_values), now, id], function(err) {
+      if (err) reject(err);
+      else resolve({ id, type_id, field_values, updated_at: now });
+    });
+  });
+});
+ipcMain.handle('delete-asset', async (event, id) => {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM Assets WHERE id = ?', [id], function(err) {
+      if (err) reject(err);
+      else resolve({ success: true });
+    });
+  });
+});
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(createWindow);
 
@@ -1578,5 +1670,27 @@ app.on('before-quit', async (event) => {
   } catch (err) {
     console.error('Error during application quit:', err);
     app.exit(1);
+  }
+});
+
+ipcMain.handle('export-assets-to-csv', async (event, { type, assets }) => {
+  try {
+    const fields = type.fields;
+    const csvRows = [fields.join(',')];
+    for (const asset of assets) {
+      csvRows.push(fields.map(f => '"' + String(asset.field_values[f] || '').replace(/"/g, '""') + '"').join(','));
+    }
+    const csv = csvRows.join('\n');
+    const exportsDir = path.join(app.getPath('userData'), 'exports');
+    if (!fs.existsSync(exportsDir)) {
+      fs.mkdirSync(exportsDir, { recursive: true });
+    }
+    const fileName = `${type.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_assets_${Date.now()}.csv`;
+    const filePath = path.join(exportsDir, fileName);
+    await fs.promises.writeFile(filePath, csv, 'utf8');
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('Error exporting assets to CSV:', err);
+    throw err;
   }
 }); 

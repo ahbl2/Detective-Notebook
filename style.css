@@ -2112,4 +2112,8 @@ body {
     .pagination-container {
         grid-column: 1 / -1;
     }
+}
+
+.section-item, .category-item {
+    cursor: pointer;
 } 
