@@ -20,6 +20,10 @@ let pendingFiles = [];
 let categories = [];
 let currentPage = 1;
 let itemsPerPage = 15;
+let currentFavoritesPage = 1;
+const favoritesPerPage = 15;
+let currentFavoritesSort = 'title';
+let currentCategorySort = 'title';
 
 // Category Settings Modal Management
 let selectedCategoryId = null;
@@ -502,11 +506,14 @@ function renderEntries(entriesToRender = entries) {
     entriesGrid.className = 'entries-grid';
     contentWrapper.appendChild(entriesGrid);
 
+    // Sort entries before paginating
+    const sortedEntries = sortEntries(entriesToRender, currentCategorySort);
+
     // Calculate pagination
-    const totalPages = Math.ceil(entriesToRender.length / itemsPerPage);
+    const totalPages = Math.ceil(sortedEntries.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = Math.min(startIndex + itemsPerPage, entriesToRender.length);
-    const paginatedEntries = entriesToRender.slice(startIndex, endIndex);
+    const endIndex = Math.min(startIndex + itemsPerPage, sortedEntries.length);
+    const paginatedEntries = sortedEntries.slice(startIndex, endIndex);
 
     // Render paginated entries
     if (paginatedEntries.length === 0) {
@@ -520,6 +527,11 @@ function renderEntries(entriesToRender = entries) {
                 </button>
             </div>
         `;
+        // Attach event listener to Add Entry button
+        const addEntryBtn = entriesGrid.querySelector('.add-entry-btn');
+        if (addEntryBtn) {
+            addEntryBtn.addEventListener('click', () => showModal());
+        }
     } else {
         paginatedEntries.forEach(entry => {
             const entryElement = createEntryElement(entry);
@@ -535,7 +547,7 @@ function renderEntries(entriesToRender = entries) {
 
         const pagination = new Pagination({
             container: paginationContainer,
-            totalItems: entriesToRender.length,
+            totalItems: sortedEntries.length,
             currentPage: currentPage,
             pageSize: itemsPerPage,
             onPageChange: (page) => {
@@ -547,6 +559,17 @@ function renderEntries(entriesToRender = entries) {
 
         // Append pagination as a grid item inside entriesGrid
         entriesGrid.appendChild(paginationContainer);
+    }
+
+    // Set the sort dropdown value and add change handler
+    const entrySortSelect = document.getElementById('entrySortSelect');
+    if (entrySortSelect) {
+        entrySortSelect.value = currentCategorySort;
+        entrySortSelect.addEventListener('change', () => {
+            currentCategorySort = entrySortSelect.value;
+            currentPage = 1;
+            renderEntries(entriesToRender);
+        });
     }
 
     // Add event listeners
@@ -1163,6 +1186,13 @@ async function renderDashboard() {
         const recentlyUpdated = (data.recentEntries || []).slice(0, 5); // Limit to 5 entries
         const recentlyAdded = (data.recentlyAdded || []).slice(0, 5); // Limit to 5 entries
         
+        // Calculate pagination for favorites
+        const sortedFavorites = sortEntries(favorites, currentFavoritesSort);
+        const totalFavoritesPages = Math.ceil(sortedFavorites.length / favoritesPerPage);
+        const startIndex = (currentFavoritesPage - 1) * favoritesPerPage;
+        const endIndex = Math.min(startIndex + favoritesPerPage, sortedFavorites.length);
+        const paginatedFavorites = sortedFavorites.slice(startIndex, endIndex);
+
         container.innerHTML = `
             <div class="dashboard">
                 <div class="dashboard-section favorites-section">
@@ -1180,103 +1210,7 @@ async function renderDashboard() {
                             <option value="ratingAsc">Rating (Lowest)</option>
                         </select>
                     </div>
-                    <div class="favorites-grid">
-                        ${favorites.length > 0 ? 
-                            sortEntries(favorites, 'title').map(entry => {
-                                if (!entry) return '';
-                                const createdDate = new Date(entry.created_at || Date.now());
-                                const lastEditDate = new Date(entry.last_edit_at || entry.updated_at || Date.now());
-                                const timeSinceEdit = timeSince(lastEditDate);
-
-                                return `
-                                    <div class="entry" data-entry-id="${entry.id}">
-                                        <button class="favorite-btn active" title="Remove from favorites">
-                                            <i class="fas fa-star"></i>
-                                        </button>
-                                        <div class="entry-header">
-                                            <div class="entry-title">
-                                                <h4>${entry.category_name || 'Entry'}</h4>
-                                                <h3>${entry.title || 'Untitled Entry'}</h3>
-                                            </div>
-                                            <div class="entry-metadata">
-                                                <span class="metadata-item" title="Created on ${createdDate.toLocaleDateString()}">
-                                                    <i class="fas fa-calendar-plus"></i>
-                                                    ${createdDate.toLocaleDateString()}
-                                                </span>
-                                                <span class="metadata-item" title="Last edited ${lastEditDate.toLocaleString()}">
-                                                    <i class="fas fa-clock"></i>
-                                                    ${timeSinceEdit}
-                                                </span>
-                                                <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
-                                                    <i class="fas fa-eye"></i>
-                                                    ${entry.view_count || 0}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div class="entry-content">
-                                            ${entry.description ? `
-                                                <div class="entry-section">
-                                                    <h4><i class="fas fa-align-left"></i> Description</h4>
-                                                    <p>${entry.description}</p>
-                                                </div>
-                                            ` : ''}
-                                            ${entry.wisdom ? `
-                                                <div class="entry-section">
-                                                    <h4><i class="fas fa-lightbulb"></i> Wisdom</h4>
-                                                    <p>${entry.wisdom}</p>
-                                                </div>
-                                            ` : ''}
-                                            ${(entry.files?.length > 0 || entry.file_path) ? `
-                                                <div class="entry-section">
-                                                    <h4><i class="fas fa-paperclip"></i> Files</h4>
-                                                    <div class="files-list">
-                                                        ${entry.files ? entry.files.map(file => `
-                                                            <div class="file-attachment" title="Click to open file">
-                                                                <i class="fas fa-file"></i>
-                                                                <span class="file-name">${file?.name || file?.path?.split('/').pop() || 'Unknown file'}</span>
-                                                                <div class="file-actions">
-                                                                    <button class="download-btn" title="Download file">
-                                                                        <i class="fas fa-download"></i>
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        `).join('') : entry.file_path ? `
-                                                            <div class="file-attachment" title="Click to open file">
-                                                                <i class="fas fa-file"></i>
-                                                                <span class="file-name">${entry.file_path.split('/').pop()}</span>
-                                                                <div class="file-actions">
-                                                                    <button class="download-btn" title="Download file">
-                                                                        <i class="fas fa-download"></i>
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        ` : ''}
-                                                    </div>
-                                                </div>
-                                            ` : ''}
-                                        </div>
-                                        <div class="entry-footer">
-                                            <div class="rating-section">
-                                                ${renderStars(entry.id, entry.rating || 0)}
-                                            </div>
-                                            ${entry.tags ? `
-                                                <div class="tags">
-                                                    ${entry.tags.split(',').map(tag => `<span class="tag" title="Filter by tag">${tag.trim()}</span>`).join('')}
-                                                </div>
-                                            ` : ''}
-                                            <div class="entry-actions">
-                                                <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
-                                                    <i class="fas fa-edit"></i>
-                                                    Edit
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('') :
-                            '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>'
-                        }
-                    </div>
+                    <div class="favorites-grid"></div>
                 </div>
 
                 <div class="dashboard-recent-sections">
@@ -1338,6 +1272,44 @@ async function renderDashboard() {
                 </div>
             </div>
         `;
+
+        // Render paginated favorites as cards
+        const favoritesGrid = container.querySelector('.favorites-grid');
+        if (paginatedFavorites.length > 0) {
+            paginatedFavorites.forEach(entry => {
+                if (!entry) return;
+                const entryElement = createEntryElement(entry);
+                favoritesGrid.appendChild(entryElement);
+            });
+        } else {
+            favoritesGrid.innerHTML = '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
+        }
+
+        // Add pagination controls if there are multiple pages
+        if (totalFavoritesPages > 1) {
+            const paginationContainer = document.createElement('div');
+            paginationContainer.className = 'pagination-container';
+            const pagination = new Pagination({
+                container: paginationContainer,
+                totalItems: sortedFavorites.length,
+                currentPage: currentFavoritesPage,
+                pageSize: favoritesPerPage,
+                onPageChange: (page) => {
+                    currentFavoritesPage = page;
+                    renderDashboard();
+                    // Scroll to top of dashboard section
+                    const dashboardSection = document.querySelector('.dashboard-section.favorites-section');
+                    if (dashboardSection) {
+                        dashboardSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } else {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                }
+            });
+            // Center under the second card
+            paginationContainer.style.gridColumn = '2 / 3';
+            favoritesGrid.appendChild(paginationContainer);
+        }
 
         // Add all necessary CSS styles
         if (!document.querySelector('#dashboard-styles')) {
@@ -1660,105 +1632,11 @@ async function renderDashboard() {
         // Add sort change listener for favorites
         const favoritesSortSelect = document.getElementById('favoritesSortSelect');
         if (favoritesSortSelect) {
+            favoritesSortSelect.value = currentFavoritesSort;
             favoritesSortSelect.addEventListener('change', () => {
-                const sortedFavorites = sortEntries(favorites, favoritesSortSelect.value);
-                const favoritesGrid = document.querySelector('.favorites-grid');
-                if (favoritesGrid) {
-                    favoritesGrid.innerHTML = sortedFavorites.length > 0 ? 
-                        sortedFavorites.map(entry => {
-                            if (!entry) return '';
-                            const createdDate = new Date(entry.created_at || Date.now());
-                            const lastEditDate = new Date(entry.last_edit_at || entry.updated_at || Date.now());
-                            const timeSinceEdit = timeSince(lastEditDate);
-
-                            return `
-                                <div class="entry" data-entry-id="${entry.id}">
-                                    <button class="favorite-btn active" title="Remove from favorites">
-                                        <i class="fas fa-star"></i>
-                                    </button>
-                                    <div class="entry-header">
-                                        <div class="entry-title">
-                                            <h4>${entry.category_name || 'Entry'}</h4>
-                                            <h3>${entry.title || 'Untitled Entry'}</h3>
-                                        </div>
-                                        <div class="entry-metadata">
-                                            <span class="metadata-item" title="Created on ${createdDate.toLocaleDateString()}">
-                                                <i class="fas fa-calendar-plus"></i>
-                                                ${createdDate.toLocaleDateString()}
-                                            </span>
-                                            <span class="metadata-item" title="Last edited ${lastEditDate.toLocaleString()}">
-                                                <i class="fas fa-clock"></i>
-                                                ${timeSinceEdit}
-                                            </span>
-                                            <span class="metadata-item" title="Viewed ${entry.view_count || 0} times">
-                                                <i class="fas fa-eye"></i>
-                                                ${entry.view_count || 0}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="entry-content">
-                                        ${entry.description ? `
-                                            <div class="entry-section">
-                                                <h4><i class="fas fa-align-left"></i> Description</h4>
-                                                <p>${entry.description}</p>
-                                            </div>
-                                        ` : ''}
-                                        ${entry.wisdom ? `
-                                            <div class="entry-section">
-                                                <h4><i class="fas fa-lightbulb"></i> Wisdom</h4>
-                                                <p>${entry.wisdom}</p>
-                                            </div>
-                                        ` : ''}
-                                        ${(entry.files?.length > 0 || entry.file_path) ? `
-                                            <div class="entry-section">
-                                                <h4><i class="fas fa-paperclip"></i> Files</h4>
-                                                <div class="files-list">
-                                                    ${entry.files ? entry.files.map(file => `
-                                                        <div class="file-attachment" title="Click to open file">
-                                                            <i class="fas fa-file"></i>
-                                                            <span class="file-name">${file?.name || file?.path?.split('/').pop() || 'Unknown file'}</span>
-                                                            <div class="file-actions">
-                                                                <button class="download-btn" title="Download file">
-                                                                    <i class="fas fa-download"></i>
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    `).join('') : entry.file_path ? `
-                                                        <div class="file-attachment" title="Click to open file">
-                                                            <i class="fas fa-file"></i>
-                                                            <span class="file-name">${entry.file_path.split('/').pop()}</span>
-                                                            <div class="file-actions">
-                                                                <button class="download-btn" title="Download file">
-                                                                    <i class="fas fa-download"></i>
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ` : ''}
-                                                </div>
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                    <div class="entry-footer">
-                                        <div class="rating-section">
-                                            ${renderStars(entry.id, entry.rating || 0)}
-                                        </div>
-                                        ${entry.tags ? `
-                                            <div class="tags">
-                                                ${entry.tags.split(',').map(tag => `<span class="tag" title="Filter by tag">${tag.trim()}</span>`).join('')}
-                                            </div>
-                                        ` : ''}
-                                        <div class="entry-actions">
-                                            <button class="edit-btn" data-entry-id="${entry.id}" title="Edit entry">
-                                                <i class="fas fa-edit"></i>
-                                                Edit
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('') :
-                        '<p class="no-entries">No favorite entries yet. Click the star on any entry to add it to your favorites.</p>';
-                }
+                currentFavoritesSort = favoritesSortSelect.value;
+                currentFavoritesPage = 1;
+                renderDashboard();
             });
         }
     } catch (error) {
