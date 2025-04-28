@@ -85,6 +85,10 @@ function renderSidebar() {
         currentCategory = null;
         guideDropdownOpen = false;
         renderSidebar();
+        if (sectionId === 'assets') {
+          assetManagerView = 'list';
+          selectedAssetTypeId = null;
+        }
         await renderSection(sectionId);
       }
     });
@@ -661,6 +665,8 @@ function renderEntries(entriesToRender = entries) {
 
     // Add event listeners
     // setupEntryEventListeners();
+
+    updateTopRightButton('categories');
 }
 
 // Function to sort entries based on selected criteria
@@ -1726,6 +1732,8 @@ async function renderDashboard() {
                 renderDashboard();
             });
         }
+
+        updateTopRightButton('dashboard');
     } catch (error) {
         console.error('Error rendering dashboard:', error);
         showNotification('Error loading dashboard', 'error');
@@ -2835,6 +2843,15 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
     await renderAssetManagerPage();
     return;
   }
+
+  // Update the main search container for asset search
+  const searchContainer = document.querySelector('.search-container');
+  const mainSearchInput = searchContainer.querySelector('input[type="text"]');
+  mainSearchInput.placeholder = 'Search assets...';
+  
+  // Show/hide appropriate buttons
+  updateTopRightButton('assets');
+
   entriesContainer.innerHTML = `
     <div class="asset-type-sheet-container">
       <div class="asset-type-sheet-header-row">
@@ -2842,24 +2859,23 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
         <h2 class="asset-type-sheet-title"><i class="fas fa-cube"></i> ${type.name}</h2>
       </div>
       <div class="asset-type-sheet-controls">
-        <input type="text" id="asset-search" placeholder="Search assets...">
         <button class="btn btn-secondary" id="export-assets-btn"><i class="fas fa-file-csv"></i> Export CSV</button>
-        <button class="btn btn-primary" id="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
       </div>
       <div class="assets-list"></div>
       <div id="asset-modal" class="modal" style="display:none;"></div>
     </div>
   `;
+
   document.getElementById('back-to-types-btn').onclick = () => {
     assetManagerView = 'list';
     selectedAssetTypeId = null;
     renderAssetManagerPage();
   };
+
   // Asset table logic
   let allAssets = await window.api.getAssets(type.id);
   let filteredAssets = allAssets;
   const assetsList = document.querySelector('.assets-list');
-  const searchInput = document.getElementById('asset-search');
   
   // Initialize sort field if not set
   if (!currentAssetSortField && type.fields.length > 0) {
@@ -2869,6 +2885,25 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
   // Always reset sort field and direction to the asset type's default when opening the page
   currentAssetSortField = type.default_sort_field || (type.fields.length > 0 ? type.fields[0] : null);
   currentAssetSortAsc = type.default_sort_field ? type.default_sort_asc : true;
+
+  // Update search functionality to use the main search input
+  mainSearchInput.addEventListener('input', debounce(async (e) => {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    const searchClearBtn = document.querySelector('.search-clear-btn');
+    searchClearBtn.classList.toggle('visible', searchTerm.length > 0);
+    
+    if (!searchTerm) {
+      filteredAssets = allAssets;
+    } else {
+      filteredAssets = allAssets.filter(asset => {
+        return Object.values(asset).some(value => 
+          String(value).toLowerCase().includes(searchTerm)
+        );
+      });
+    }
+    
+    renderAssetsList(filteredAssets);
+  }, 300));
 
   // Helper to sort assets array
   function sortAssetsArray(arr, field, asc) {
@@ -2898,8 +2933,8 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
   }
 
   // Search handler
-  searchInput.oninput = () => {
-    const q = searchInput.value.trim().toLowerCase();
+  mainSearchInput.oninput = () => {
+    const q = mainSearchInput.value.trim().toLowerCase();
     filteredAssets = allAssets.filter(asset =>
       type.fields.some(f => (asset.field_values[f] || '').toLowerCase().includes(q))
     );
@@ -3229,9 +3264,13 @@ async function renderAssetTypesCardsPage() {
   const totalPages = Math.ceil(types.length / itemsPerPage);
   let currentPage = 1;
 
-  // Hide Add Entry button
-  const addEntryBtn = document.querySelector('.add-entry-btn');
-  if (addEntryBtn) addEntryBtn.style.display = 'none';
+  // Update the main search container
+  const searchContainer = document.querySelector('.search-container');
+  const searchInput = searchContainer.querySelector('input[type="text"]');
+  searchInput.placeholder = 'Search asset types...';
+  
+  // Show/hide appropriate buttons
+  updateTopRightButton('assetTypes');
 
   // Remove any custom top bar if present
   const oldTopBar = document.getElementById('asset-types-top-bar');
@@ -3248,30 +3287,12 @@ async function renderAssetTypesCardsPage() {
   searchContainer.style.boxSizing = 'border-box';
 
   // Make the search input flex: 1 and match categories page
-  const searchInput = searchContainer.querySelector('input[type="text"]');
   if (searchInput) {
     searchInput.style.flex = '1';
     searchInput.style.minWidth = '0';
     searchInput.style.maxWidth = '';
     searchInput.style.marginRight = '';
-    searchInput.className = 'search-bar'; // match categories page if needed
-  }
-
-  // Place Add Asset Type button immediately after search input
-  let addAssetTypeBtn = document.getElementById('add-asset-type-btn');
-  if (!addAssetTypeBtn) {
-    addAssetTypeBtn = document.createElement('button');
-    addAssetTypeBtn.id = 'add-asset-type-btn';
-    addAssetTypeBtn.className = 'btn btn-primary add-entry-btn'; // match Add Entry button
-    addAssetTypeBtn.innerHTML = '<i class="fas fa-plus"></i> Add Asset Type';
-    addAssetTypeBtn.onclick = () => showAssetTypeModal();
-  }
-  addAssetTypeBtn.style.display = 'inline-flex';
-  addAssetTypeBtn.style.alignItems = 'center';
-  addAssetTypeBtn.style.marginLeft = '';
-  // Insert right after search input
-  if (searchInput && searchInput.nextSibling !== addAssetTypeBtn) {
-    searchContainer.insertBefore(addAssetTypeBtn, searchInput.nextSibling);
+    searchInput.className = 'search-bar';
   }
 
   // Remove any custom style block for the previous button layout
@@ -3304,7 +3325,7 @@ async function renderAssetTypesCardsPage() {
       ${totalPages > 1 ? `<div class="pagination-container">${Array.from({length: totalPages}, (_, i) => `<button class="pagination-btn${i+1===currentPage?' active':''}" data-page="${i+1}">${i+1}</button>`).join('')}</div>` : ''}
     `;
     // Add Asset Type button handler
-    document.getElementById('add-asset-type-btn').onclick = () => showAssetTypeModal();
+    // document.getElementById('add-asset-type-btn').onclick = () => showAssetTypeModal();
     // Card click handlers (open spreadsheet view)
     document.querySelectorAll('.asset-type-card').forEach(card => {
       card.addEventListener('click', e => {
@@ -3626,4 +3647,29 @@ function showAssetTypeModal(type = null) {
     modal.remove();
     await renderAssetTypesCardsPage();
   };
+}
+
+// Utility to update the top right button based on page type
+function updateTopRightButton(pageType, extra) {
+  const addEntryBtn = document.querySelector('.add-entry-btn');
+  if (!addEntryBtn) return;
+  if (pageType === 'categories' || pageType === 'dashboard') {
+    addEntryBtn.innerHTML = '<i class="fas fa-plus"></i> Add Entry';
+    addEntryBtn.style.display = 'inline-flex';
+    addEntryBtn.onclick = () => showModal();
+  } else if (pageType === 'assetTypes') {
+    addEntryBtn.innerHTML = '<i class="fas fa-plus"></i> Add Asset Type';
+    addEntryBtn.style.display = 'inline-flex';
+    addEntryBtn.onclick = () => showAssetTypeModal();
+  } else if (pageType === 'assets') {
+    addEntryBtn.style.display = 'none';
+    addEntryBtn.onclick = null;
+  } else if (pageType === 'assetTypeSpreadsheet') {
+    addEntryBtn.innerHTML = '<i class="fas fa-plus"></i> Add Asset';
+    addEntryBtn.style.display = 'inline-flex';
+    addEntryBtn.onclick = () => showAssetModal(extra); // extra = typeId
+  } else {
+    addEntryBtn.style.display = 'none';
+    addEntryBtn.onclick = null;
+  }
 }
