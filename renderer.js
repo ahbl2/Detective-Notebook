@@ -3273,41 +3273,22 @@ async function renderAssetTypesCardsPage() {
   }
 
   const types = await window.api.getAssetTypes();
-  const itemsPerPage = 9;
+  const itemsPerPage = 12;
   const totalPages = Math.ceil(types.length / itemsPerPage);
   let currentPage = 1;
-
-  console.log('Current state:', {
-    assetManagerView,
-    selectedAssetTypeId,
-    currentPage,
-    itemsPerPage
-  });
 
   // Update the main search container
   const searchContainer = document.querySelector('.search-container');
   const searchInput = searchContainer.querySelector('input[type="text"]');
   searchInput.placeholder = 'Search asset types...';
-  
-  // Show/hide appropriate buttons
   updateTopRightButton('assetTypes');
 
-  // Remove any custom top bar if present
-  const oldTopBar = document.getElementById('asset-types-top-bar');
-  if (oldTopBar && oldTopBar.parentElement) {
-    console.log('Removing old top bar');
-    oldTopBar.parentElement.removeChild(oldTopBar);
-  }
-
-  // Ensure searchContainer uses flex layout and matches categories page
   searchContainer.style.display = 'flex';
   searchContainer.style.alignItems = 'center';
   searchContainer.style.gap = '0.5rem';
   searchContainer.style.margin = '2rem 0 1.5rem 0';
   searchContainer.style.padding = '0';
   searchContainer.style.boxSizing = 'border-box';
-
-  // Make the search input flex: 1 and match categories page
   if (searchInput) {
     searchInput.style.flex = '1';
     searchInput.style.minWidth = '0';
@@ -3316,61 +3297,36 @@ async function renderAssetTypesCardsPage() {
     searchInput.className = 'search-bar';
   }
 
-  // Remove any custom style block for the previous button layout
-  const oldBtnStyle = document.getElementById('add-asset-type-btn-style');
-  if (oldBtnStyle) {
-    console.log('Removing old button style');
-    oldBtnStyle.remove();
-  }
-
   function renderPage(page) {
-    console.log('=== Rendering page ' + page + ' ===');
     currentPage = page;
     const start = (page - 1) * itemsPerPage;
     const end = start + itemsPerPage;
     const paginatedTypes = types.slice(start, end);
-    
-    console.log('Rendering with types:', paginatedTypes);
-    
+
     entriesContainer.innerHTML = `
-      <div class="asset-types-title-container">
+      <div class="asset-types-grid-header">
         <h2 class="asset-types-title"><i class="fas fa-cube"></i> Asset Types</h2>
       </div>
-      <div class="asset-types-grid">
+      <div class="asset-types-card-grid">
         ${paginatedTypes.length === 0 ? '<p class="no-asset-types">No asset types yet.</p>' : paginatedTypes.map(type => `
-          <div class="asset-type-card" data-id="${type.id}">
-            <div class="asset-type-card-header">
+          <div class="asset-type-card-grid-item" data-id="${type.id}">
+            <div class="asset-type-card-grid-header">
               <span class="asset-type-name">${type.name}</span>
               <div class="asset-type-card-actions">
                 <button class="btn btn-sm btn-secondary edit-type-btn" data-id="${type.id}" title="Edit"><i class="fas fa-edit"></i></button>
                 <button class="btn btn-sm btn-danger delete-type-btn" data-id="${type.id}" title="Delete"><i class="fas fa-trash"></i></button>
               </div>
             </div>
-            <div class="asset-type-fields">${type.fields.map(f => `<span class="asset-type-field">${f}</span>`).join(' ')}</div>
+            <div class="asset-type-fields-grid">
+              ${type.fields.map(f => `<span class="asset-type-field-grid">${f}</span>`).join(' ')}
+            </div>
           </div>
         `).join('')}
       </div>
       ${totalPages > 1 ? `<div class="pagination-container">${Array.from({length: totalPages}, (_, i) => `<button class="pagination-btn${i+1===currentPage?' active':''}" data-page="${i+1}">${i+1}</button>`).join('')}</div>` : ''}
     `;
 
-    // Log the current styles
-    const titleContainer = document.querySelector('.asset-types-title-container');
-    const grid = document.querySelector('.asset-types-grid');
-    console.log('Current styles:', {
-      titleContainer: titleContainer ? {
-        margin: titleContainer.style.margin,
-        padding: titleContainer.style.padding,
-        maxWidth: titleContainer.style.maxWidth
-      } : 'Not found',
-      grid: grid ? {
-        margin: grid.style.margin,
-        padding: grid.style.padding,
-        maxWidth: grid.style.maxWidth
-      } : 'Not found'
-    });
-
-    // Add event handlers
-    document.querySelectorAll('.asset-type-card').forEach(card => {
+    document.querySelectorAll('.asset-type-card-grid-item').forEach(card => {
       card.addEventListener('click', e => {
         if (e.target.closest('.edit-type-btn') || e.target.closest('.delete-type-btn')) return;
         selectedAssetTypeId = card.dataset.id;
@@ -3378,7 +3334,6 @@ async function renderAssetTypesCardsPage() {
         renderAssetManagerPage();
       });
     });
-
     document.querySelectorAll('.edit-type-btn').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
@@ -3387,7 +3342,6 @@ async function renderAssetTypesCardsPage() {
         showAssetTypeModal(type);
       });
     });
-
     document.querySelectorAll('.delete-type-btn').forEach(btn => {
       btn.addEventListener('click', async e => {
         e.stopPropagation();
@@ -3399,7 +3353,6 @@ async function renderAssetTypesCardsPage() {
         }
       });
     });
-
     document.querySelectorAll('.pagination-btn').forEach(btn => {
       btn.onclick = () => renderPage(Number(btn.dataset.page));
     });
@@ -3407,39 +3360,26 @@ async function renderAssetTypesCardsPage() {
 
   // Remove old style if present
   const oldStyle = document.getElementById('asset-types-card-styles');
-  if (oldStyle) {
-    console.log('Removing old style block');
-    oldStyle.remove();
-  }
+  if (oldStyle) oldStyle.remove();
 
-  // Add modern styles for the grid and header
+  // Add modern styles for the card grid layout
   const style = document.createElement('style');
   style.id = 'asset-types-card-styles';
   style.textContent = `
-    .add-asset-type-btn {
-      font-size: 1.08rem;
-      padding: 0.55em 1.3em;
-      border-radius: 7px;
-      font-weight: 600;
-      background: #3498db;
-      color: #fff;
-      border: none;
-      box-shadow: 0 1px 4px rgba(52,152,219,0.08);
-      transition: background 0.15s, color 0.15s;
-      display: flex;
-      align-items: center;
-      gap: 0.5em;
-      cursor: pointer;
-      margin-left: auto;
+    .entries-container {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      box-sizing: border-box !important;
+      display: block !important;
+      background: none !important;
     }
-    .add-asset-type-btn:hover {
-      background: #217dbb;
-      color: #fff;
-    }
-    .asset-types-title-container {
-      max-width: 1100px;
-      margin: 2.5rem auto 1.5rem auto;
-      padding: 0 0.5rem;
+    .asset-types-grid-header {
+      margin: 0 0 1.5rem 0;
+      padding: 0 2vw;
+      width: 100%;
+      box-sizing: border-box;
     }
     .asset-types-title {
       font-size: 1.5rem;
@@ -3450,40 +3390,47 @@ async function renderAssetTypesCardsPage() {
       gap: 0.5rem;
       margin: 0;
     }
-    .asset-types-grid {
-      max-width: 1100px;
-      margin: 0 auto;
+    .asset-types-card-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
       width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1vw;
+      box-sizing: border-box;
+      min-height: 200px;
+      background: none;
+      justify-content: center;
     }
-    .asset-type-card {
-      background: #f8fafb;
+    .asset-type-card-grid-item {
+      background: #fff;
       border-radius: 12px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-      padding: 1.2rem 1.2rem 1rem 1.2rem;
-      cursor: pointer;
-      transition: box-shadow 0.15s, transform 0.15s;
-      border: 1px solid #e1e4e8;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      padding: 1.2rem 1.5rem 1rem 1.5rem;
       display: flex;
       flex-direction: column;
       min-width: 0;
+      max-width: 100%;
+      width: 100%;
+      transition: box-shadow 0.15s, transform 0.15s;
+      border: 1px solid #e1e4e8;
+      cursor: pointer;
     }
-    .asset-type-card:hover {
-      box-shadow: 0 4px 16px rgba(52,152,219,0.10);
+    .asset-type-card-grid-item:hover {
+      box-shadow: 0 6px 24px rgba(52,152,219,0.13);
       transform: translateY(-2px) scale(1.01);
       border-color: #3498db33;
     }
-    .asset-type-card-header {
+    .asset-type-card-grid-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 0.7rem;
+      margin-bottom: 0.6rem;
     }
     .asset-type-name {
-      font-weight: 600;
-      font-size: 1.15rem;
+      font-weight: 700;
+      font-size: 1.08rem;
       color: #222;
       word-break: break-word;
     }
@@ -3491,19 +3438,20 @@ async function renderAssetTypesCardsPage() {
       display: flex;
       gap: 0.3rem;
     }
-    .asset-type-fields {
-      margin-top: 0.5rem;
+    .asset-type-fields-grid {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.4rem;
+      gap: 0.3rem;
+      margin-top: 0.1rem;
     }
-    .asset-type-field {
+    .asset-type-field-grid {
       background: #eaf6ff;
       color: #3498db;
       border-radius: 5px;
-      padding: 0.2em 0.7em;
-      font-size: 0.98em;
-      margin-bottom: 0.2em;
+      padding: 0.18em 0.7em;
+      font-size: 0.95em;
+      margin-bottom: 0.1em;
+      font-weight: 500;
     }
     .no-asset-types {
       color: #888;
@@ -3531,18 +3479,22 @@ async function renderAssetTypesCardsPage() {
       background: #3498db;
       color: #fff;
     }
+    @media (max-width: 1200px) {
+      .asset-types-card-grid { max-width: 98vw; }
+    }
     @media (max-width: 900px) {
-      .asset-types-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+      .asset-types-card-grid { grid-template-columns: repeat(2, 1fr); gap: 1rem; max-width: 98vw; }
+      .asset-types-grid-header { padding: 0 1vw; }
+      .asset-type-card-grid-item { max-width: 100%; }
     }
     @media (max-width: 600px) {
-      .asset-types-title-container { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
-      .asset-types-grid { grid-template-columns: 1fr; gap: 0.7rem; }
+      .asset-types-card-grid { grid-template-columns: 1fr; gap: 0.5rem; padding: 0 0.2vw; max-width: 100%; }
+      .asset-types-grid-header { padding: 0 0.2vw; }
+      .asset-type-card-grid-item { padding: 0.7rem 0.5rem 0.7rem 0.5rem; }
     }
   `;
   document.head.appendChild(style);
-  console.log('Added new style block');
 
-  // Hide the Add Asset Type button when leaving the Asset Manager page
   window._hideAddAssetTypeBtn = function() {
     const btn = document.getElementById('add-asset-type-btn');
     if (btn) btn.style.display = 'none';
