@@ -111,9 +111,12 @@ async function renderTemplatesPage() {
   entriesContainer.innerHTML = `<div class="section-placeholder"><h2><i class="fas fa-file-alt"></i> Templates</h2><p>Templates section coming soon.</p></div>`;
 }
 async function renderAssetManagerPage() {
+  console.log('renderAssetManagerPage called with view:', assetManagerView);
   if (assetManagerView === 'list') {
+    console.log('Rendering asset types cards page');
     await renderAssetTypesCardsPage();
   } else if (assetManagerView === 'type' && selectedAssetTypeId) {
+    console.log('Rendering asset type spreadsheet page for type:', selectedAssetTypeId);
     await renderAssetTypeSpreadsheetPage(selectedAssetTypeId);
   }
 }
@@ -2867,6 +2870,7 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
   `;
 
   document.getElementById('back-to-types-btn').onclick = () => {
+    console.log('Back to types button clicked');
     assetManagerView = 'list';
     selectedAssetTypeId = null;
     renderAssetManagerPage();
@@ -3259,10 +3263,26 @@ if (!document.getElementById('asset-spreadsheet-styles')) {
 
 // Add this function to fix the ReferenceError for Asset Manager
 async function renderAssetTypesCardsPage() {
+  console.log('=== Starting renderAssetTypesCardsPage ===');
+
+  // Remove spreadsheet/table style if present
+  const spreadsheetStyle = document.getElementById('asset-type-sheet-styles');
+  if (spreadsheetStyle) {
+    console.log('Removing spreadsheet/table style block');
+    spreadsheetStyle.remove();
+  }
+
   const types = await window.api.getAssetTypes();
   const itemsPerPage = 9;
   const totalPages = Math.ceil(types.length / itemsPerPage);
   let currentPage = 1;
+
+  console.log('Current state:', {
+    assetManagerView,
+    selectedAssetTypeId,
+    currentPage,
+    itemsPerPage
+  });
 
   // Update the main search container
   const searchContainer = document.querySelector('.search-container');
@@ -3275,6 +3295,7 @@ async function renderAssetTypesCardsPage() {
   // Remove any custom top bar if present
   const oldTopBar = document.getElementById('asset-types-top-bar');
   if (oldTopBar && oldTopBar.parentElement) {
+    console.log('Removing old top bar');
     oldTopBar.parentElement.removeChild(oldTopBar);
   }
 
@@ -3297,16 +3318,23 @@ async function renderAssetTypesCardsPage() {
 
   // Remove any custom style block for the previous button layout
   const oldBtnStyle = document.getElementById('add-asset-type-btn-style');
-  if (oldBtnStyle) oldBtnStyle.remove();
+  if (oldBtnStyle) {
+    console.log('Removing old button style');
+    oldBtnStyle.remove();
+  }
 
   function renderPage(page) {
+    console.log('=== Rendering page ' + page + ' ===');
     currentPage = page;
     const start = (page - 1) * itemsPerPage;
     const end = start + itemsPerPage;
     const paginatedTypes = types.slice(start, end);
+    
+    console.log('Rendering with types:', paginatedTypes);
+    
     entriesContainer.innerHTML = `
-      <div class="asset-types-header-bar">
-        <div class="asset-types-title"><i class="fas fa-cube"></i> Asset Types</div>
+      <div class="asset-types-title-container">
+        <h2 class="asset-types-title"><i class="fas fa-cube"></i> Asset Types</h2>
       </div>
       <div class="asset-types-grid">
         ${paginatedTypes.length === 0 ? '<p class="no-asset-types">No asset types yet.</p>' : paginatedTypes.map(type => `
@@ -3324,9 +3352,24 @@ async function renderAssetTypesCardsPage() {
       </div>
       ${totalPages > 1 ? `<div class="pagination-container">${Array.from({length: totalPages}, (_, i) => `<button class="pagination-btn${i+1===currentPage?' active':''}" data-page="${i+1}">${i+1}</button>`).join('')}</div>` : ''}
     `;
-    // Add Asset Type button handler
-    // document.getElementById('add-asset-type-btn').onclick = () => showAssetTypeModal();
-    // Card click handlers (open spreadsheet view)
+
+    // Log the current styles
+    const titleContainer = document.querySelector('.asset-types-title-container');
+    const grid = document.querySelector('.asset-types-grid');
+    console.log('Current styles:', {
+      titleContainer: titleContainer ? {
+        margin: titleContainer.style.margin,
+        padding: titleContainer.style.padding,
+        maxWidth: titleContainer.style.maxWidth
+      } : 'Not found',
+      grid: grid ? {
+        margin: grid.style.margin,
+        padding: grid.style.padding,
+        maxWidth: grid.style.maxWidth
+      } : 'Not found'
+    });
+
+    // Add event handlers
     document.querySelectorAll('.asset-type-card').forEach(card => {
       card.addEventListener('click', e => {
         if (e.target.closest('.edit-type-btn') || e.target.closest('.delete-type-btn')) return;
@@ -3335,7 +3378,7 @@ async function renderAssetTypesCardsPage() {
         renderAssetManagerPage();
       });
     });
-    // Edit button handlers
+
     document.querySelectorAll('.edit-type-btn').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
@@ -3344,7 +3387,7 @@ async function renderAssetTypesCardsPage() {
         showAssetTypeModal(type);
       });
     });
-    // Delete button handlers
+
     document.querySelectorAll('.delete-type-btn').forEach(btn => {
       btn.addEventListener('click', async e => {
         e.stopPropagation();
@@ -3356,16 +3399,20 @@ async function renderAssetTypesCardsPage() {
         }
       });
     });
-    // Pagination handlers
+
     document.querySelectorAll('.pagination-btn').forEach(btn => {
       btn.onclick = () => renderPage(Number(btn.dataset.page));
     });
   }
-  renderPage(1);
+
   // Remove old style if present
   const oldStyle = document.getElementById('asset-types-card-styles');
-  if (oldStyle) oldStyle.remove();
-  // Add modern styles for the grid and header only (no big card container)
+  if (oldStyle) {
+    console.log('Removing old style block');
+    oldStyle.remove();
+  }
+
+  // Add modern styles for the grid and header
   const style = document.createElement('style');
   style.id = 'asset-types-card-styles';
   style.textContent = `
@@ -3389,14 +3436,10 @@ async function renderAssetTypesCardsPage() {
       background: #217dbb;
       color: #fff;
     }
-    .asset-types-header-bar {
+    .asset-types-title-container {
       max-width: 1100px;
-      margin: 2.5rem auto 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
+      margin: 2.5rem auto 1.5rem auto;
       padding: 0 0.5rem;
-      gap: 1.5rem;
     }
     .asset-types-title {
       font-size: 1.5rem;
@@ -3405,10 +3448,11 @@ async function renderAssetTypesCardsPage() {
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      margin: 0;
     }
     .asset-types-grid {
       max-width: 1100px;
-      margin: 1.5rem auto 0 auto;
+      margin: 0 auto;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 1.5rem;
@@ -3491,16 +3535,21 @@ async function renderAssetTypesCardsPage() {
       .asset-types-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     }
     @media (max-width: 600px) {
-      .asset-types-header-bar { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
+      .asset-types-title-container { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
       .asset-types-grid { grid-template-columns: 1fr; gap: 0.7rem; }
     }
   `;
   document.head.appendChild(style);
+  console.log('Added new style block');
+
   // Hide the Add Asset Type button when leaving the Asset Manager page
   window._hideAddAssetTypeBtn = function() {
     const btn = document.getElementById('add-asset-type-btn');
     if (btn) btn.style.display = 'none';
   };
+
+  renderPage(1);
+  console.log('=== Finished renderAssetTypesCardsPage ===');
 }
 
 // When showing dashboard or categories, hide the Add Asset Type button
