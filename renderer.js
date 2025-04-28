@@ -2860,12 +2860,10 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
 
   entriesContainer.innerHTML = `
     <div class="asset-type-sheet-container">
-      <div class="asset-type-sheet-header-row">
-        <button class="btn btn-secondary" id="back-to-types-btn"><i class="fas fa-arrow-left"></i> Back to Asset Types</button>
+      <button class="btn btn-secondary back-to-types-btn" id="back-to-types-btn" style="margin-bottom:0.5rem;width:auto;align-self:flex-start;"><i class="fas fa-arrow-left"></i> Back to Asset Types</button>
+      <div class="asset-type-sheet-header-flex">
         <h2 class="asset-type-sheet-title"><i class="fas fa-cube"></i> ${type.name}</h2>
-      </div>
-      <div class="asset-type-sheet-controls">
-        <button class="btn btn-secondary" id="export-assets-btn"><i class="fas fa-file-csv"></i> Export CSV</button>
+        <button class="btn btn-secondary export-assets-btn" id="export-assets-btn"><i class="fas fa-file-csv"></i> Export CSV</button>
       </div>
       <div class="assets-list"></div>
       <div id="asset-modal" class="modal" style="display:none;"></div>
@@ -3030,6 +3028,86 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
         .asset-type-sheet-header-row { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
         .asset-type-sheet-controls { flex-direction: column; gap: 0.7rem; align-items: flex-start; }
         .asset-type-sheet-container { padding: 0.5rem 0.1rem 1rem 0.1rem; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // Add modern styles for the new header layout
+  if (!document.getElementById('asset-type-sheet-header-flex-styles')) {
+    const style = document.createElement('style');
+    style.id = 'asset-type-sheet-header-flex-styles';
+    style.textContent = `
+      .asset-type-sheet-header-flex {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.5rem;
+        margin-bottom: 1.2rem;
+        padding: 0 0.2rem;
+      }
+      .asset-type-sheet-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #222;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0;
+      }
+      .export-assets-btn {
+        font-size: 1.05rem;
+        padding: 0.5em 1.2em;
+        border-radius: 7px;
+        font-weight: 600;
+        background: #f3f6fa;
+        color: #3498db;
+        border: none;
+        box-shadow: 0 1px 4px rgba(52,152,219,0.08);
+        transition: background 0.15s, color 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        cursor: pointer;
+      }
+      .export-assets-btn:hover {
+        background: #3498db;
+        color: #fff;
+      }
+      .back-to-types-btn {
+        font-size: 1rem;
+        padding: 0.4em 1em;
+        border-radius: 6px;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        background: #f8fafb;
+        color: #444;
+        border: 1px solid #e1e4e8;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        transition: background 0.15s, color 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5em;
+        margin-top: 0.5rem;
+      }
+      .back-to-types-btn:hover {
+        background: #eaf6ff;
+        color: #3498db;
+        border-color: #3498db33;
+      }
+      @media (max-width: 700px) {
+        .asset-type-sheet-header-flex {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.7rem;
+        }
+        .asset-type-sheet-title {
+          font-size: 1.2rem;
+        }
+        .export-assets-btn {
+          width: 100%;
+          justify-content: center;
+        }
       }
     `;
     document.head.appendChild(style);
