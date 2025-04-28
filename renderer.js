@@ -1954,9 +1954,8 @@ async function deleteCategory() {
 
 // Helper to finish deleting the category after entries are handled
 async function finishDeleteCategory(categoryId) {
-    // Remove category
-    categories = categories.filter(cat => cat.id !== categoryId);
-    await window.api.saveCategories(categories);
+    // Remove category from database
+    await window.api.deleteCategory(categoryId);
     // Close the modal first
     const modal = document.getElementById('category-settings-modal');
     if (modal) {
@@ -3055,7 +3054,6 @@ function renderAssetsTable(type, assets, container, allAssets, sortField, sortAs
       });
       table += `<td class="actions-cell">
         <button class="btn btn-sm btn-secondary edit-asset-btn" data-id="${asset.id}" title="Edit"><i class="fas fa-edit"></i></button>
-        <button class="btn btn-sm btn-danger delete-asset-btn" data-id="${asset.id}" title="Delete"><i class="fas fa-trash"></i></button>
       </td></tr>`;
     });
   }
@@ -3318,7 +3316,6 @@ async function renderAssetTypesCardsPage() {
               <span class="asset-type-name">${type.name}</span>
               <div class="asset-type-card-actions">
                 <button class="btn btn-sm btn-secondary edit-type-btn" data-id="${type.id}" title="Edit"><i class="fas fa-edit"></i></button>
-                <button class="btn btn-sm btn-danger delete-type-btn" data-id="${type.id}" title="Delete"><i class="fas fa-trash"></i></button>
               </div>
             </div>
             <div class="asset-type-fields-grid">
@@ -3536,7 +3533,10 @@ function showAssetModal(type, asset = null) {
             <input type="text" id="asset-field-${f}" name="${f}" value="${asset ? (asset.field_values[f] || '') : ''}" style="width:100%;padding:0.5em;margin-bottom:1em;">
           </div>
         `).join('')}
-        <button type="submit" class="btn btn-primary">${asset ? 'Save' : 'Add'} Asset</button>
+        <div class="form-actions" style="display:flex;justify-content:space-between;align-items:center;gap:1em;">
+          <button type="submit" class="btn btn-primary">${asset ? 'Save' : 'Add'} Asset</button>
+          ${asset ? `<button type="button" class="btn btn-danger" id="delete-asset-btn"><i class="fas fa-trash"></i> Delete</button>` : ''}
+        </div>
       </form>
     </div>
   `;
@@ -3559,6 +3559,19 @@ function showAssetModal(type, asset = null) {
     modal.remove();
     await renderAssetTypeSpreadsheetPage(type.id);
   };
+  // Delete asset handler
+  if (asset) {
+    const deleteBtn = document.getElementById('delete-asset-btn');
+    if (deleteBtn) {
+      deleteBtn.onclick = async () => {
+        if (confirm('Delete this asset?')) {
+          await window.api.deleteAsset(asset.id);
+          modal.remove();
+          await renderAssetTypeSpreadsheetPage(type.id);
+        }
+      };
+    }
+  }
 }
 
 // Add styles for clickable URLs
@@ -3617,7 +3630,10 @@ function showAssetTypeModal(type = null) {
             <option value="false" ${type && !type.default_sort_asc ? 'selected' : ''}>Descending</option>
           </select>
         </div>
-        <button type="submit" class="btn btn-primary">${type ? 'Save' : 'Add'} Asset Type</button>
+        <div class="form-actions" style="display:flex;justify-content:space-between;align-items:center;gap:1em;">
+          <button type="submit" class="btn btn-primary">${type ? 'Save' : 'Add'} Asset Type</button>
+          ${type ? `<button type="button" class="btn btn-danger" id="delete-asset-type-btn"><i class="fas fa-trash"></i> Delete</button>` : ''}
+        </div>
       </form>
     </div>
   `;
@@ -3655,6 +3671,20 @@ function showAssetTypeModal(type = null) {
     modal.remove();
     await renderAssetTypesCardsPage();
   };
+
+  // Delete asset type handler
+  if (type) {
+    const deleteBtn = document.getElementById('delete-asset-type-btn');
+    if (deleteBtn) {
+      deleteBtn.onclick = async () => {
+        if (confirm('Delete this asset type? This will not delete existing assets.')) {
+          await window.api.deleteAssetType(type.id);
+          modal.remove();
+          await renderAssetTypesCardsPage();
+        }
+      };
+    }
+  }
 }
 
 // Utility to update the top right button based on page type
