@@ -904,6 +904,10 @@ async function populateCategoryDropdown() {
 function showModal(entry = null) {
     console.log('Opening modal with entry:', entry);
     
+    // Close asset type modal if open
+    const assetTypeModal = document.getElementById('asset-type-modal');
+    if (assetTypeModal) assetTypeModal.remove();
+    
     // Reset form and clear any existing data
     entryForm.reset();
     pendingFiles = [];
@@ -3576,6 +3580,9 @@ if (!document.getElementById('asset-url-styles')) {
 
 // Add this function for the asset type modal
 function showAssetTypeModal(type = null) {
+  // Close entry modal if open
+  const entryModal = document.getElementById('entry-modal');
+  if (entryModal) entryModal.style.display = 'none';
   // Remove any existing modal
   let modal = document.getElementById('asset-type-modal');
   if (modal) modal.remove();
@@ -3654,6 +3661,8 @@ function showAssetTypeModal(type = null) {
 function updateTopRightButton(pageType, extra) {
   const addEntryBtn = document.querySelector('.add-entry-btn');
   if (!addEntryBtn) return;
+  // Always clear previous click handler
+  addEntryBtn.onclick = null;
   if (pageType === 'categories' || pageType === 'dashboard') {
     addEntryBtn.innerHTML = '<i class="fas fa-plus"></i> Add Entry';
     addEntryBtn.style.display = 'inline-flex';
