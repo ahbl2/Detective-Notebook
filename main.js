@@ -367,8 +367,33 @@ async function initializeApp() {
         db.run(`CREATE TABLE IF NOT EXISTS AssetTypes (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
-          fields TEXT NOT NULL
+          fields TEXT NOT NULL,
+          default_sort_field TEXT,
+          default_sort_asc INTEGER
         )`);
+
+        // Add columns to AssetTypes if they don't exist
+        db.all(`PRAGMA table_info(AssetTypes)`, [], (err, rows) => {
+          if (err) {
+            console.error('Error checking AssetTypes table:', err);
+            return;
+          }
+          const columns = rows.map(col => col.name);
+          if (!columns.includes('default_sort_field')) {
+            db.run('ALTER TABLE AssetTypes ADD COLUMN default_sort_field TEXT', (err) => {
+              if (err && !err.message.includes('duplicate column')) {
+                console.error('Error adding default_sort_field column:', err);
+              }
+            });
+          }
+          if (!columns.includes('default_sort_asc')) {
+            db.run('ALTER TABLE AssetTypes ADD COLUMN default_sort_asc INTEGER DEFAULT 1', (err) => {
+              if (err && !err.message.includes('duplicate column')) {
+                console.error('Error adding default_sort_asc column:', err);
+              }
+            });
+          }
+        });
 
         // Assets table
         db.run(`CREATE TABLE IF NOT EXISTS Assets (
@@ -1572,27 +1597,41 @@ ipcMain.handle('get-asset-types', async () => {
   return new Promise((resolve, reject) => {
     db.all('SELECT * FROM AssetTypes', (err, rows) => {
       if (err) reject(err);
-      else resolve(rows.map(row => ({ ...row, fields: parseFields(row.fields) })));
+      else resolve(rows.map(row => ({ 
+        ...row, 
+        fields: parseFields(row.fields),
+        default_sort_field: row.default_sort_field || null,
+        default_sort_asc: row.default_sort_asc === 1
+      })));
     });
   });
 });
-ipcMain.handle('add-asset-type', async (event, { name, fields }) => {
+
+ipcMain.handle('add-asset-type', async (event, { name, fields, default_sort_field = null, default_sort_asc = true }) => {
   const id = uuidv4();
   return new Promise((resolve, reject) => {
-    db.run('INSERT INTO AssetTypes (id, name, fields) VALUES (?, ?, ?)', [id, name, JSON.stringify(fields)], function(err) {
-      if (err) reject(err);
-      else resolve({ id, name, fields });
-    });
+    db.run('INSERT INTO AssetTypes (id, name, fields, default_sort_field, default_sort_asc) VALUES (?, ?, ?, ?, ?)', 
+      [id, name, JSON.stringify(fields), default_sort_field, default_sort_asc ? 1 : 0], 
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id, name, fields, default_sort_field, default_sort_asc });
+      }
+    );
   });
 });
-ipcMain.handle('update-asset-type', async (event, { id, name, fields }) => {
+
+ipcMain.handle('update-asset-type', async (event, { id, name, fields, default_sort_field = null, default_sort_asc = true }) => {
   return new Promise((resolve, reject) => {
-    db.run('UPDATE AssetTypes SET name = ?, fields = ? WHERE id = ?', [name, JSON.stringify(fields), id], function(err) {
-      if (err) reject(err);
-      else resolve({ id, name, fields });
-    });
+    db.run('UPDATE AssetTypes SET name = ?, fields = ?, default_sort_field = ?, default_sort_asc = ? WHERE id = ?', 
+      [name, JSON.stringify(fields), default_sort_field, default_sort_asc ? 1 : 0, id], 
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id, name, fields, default_sort_field, default_sort_asc });
+      }
+    );
   });
 });
+
 ipcMain.handle('delete-asset-type', async (event, id) => {
   return new Promise((resolve, reject) => {
     db.run('DELETE FROM AssetTypes WHERE id = ?', [id], function(err) {
@@ -1611,6 +1650,7 @@ ipcMain.handle('get-assets', async (event, type_id) => {
     });
   });
 });
+
 ipcMain.handle('add-asset', async (event, { type_id, field_values }) => {
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -1621,6 +1661,7 @@ ipcMain.handle('add-asset', async (event, { type_id, field_values }) => {
     });
   });
 });
+
 ipcMain.handle('update-asset', async (event, { id, type_id, field_values }) => {
   const now = new Date().toISOString();
   return new Promise((resolve, reject) => {
@@ -1630,6 +1671,7 @@ ipcMain.handle('update-asset', async (event, { id, type_id, field_values }) => {
     });
   });
 });
+
 ipcMain.handle('delete-asset', async (event, id) => {
   return new Promise((resolve, reject) => {
     db.run('DELETE FROM Assets WHERE id = ?', [id], function(err) {
