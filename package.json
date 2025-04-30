@@ -1,23 +1,24 @@
 {
   "name": "digital-detective-guide",
   "version": "1.0.0",
-  "description": "A portable knowledge base for detectives",
-  "main": "main.js",
+  "description": "Digital Detective Guide - Web Version",
+  "main": "server.js",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder",
-    "postinstall": "electron-builder install-app-deps"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@electron/rebuild": "^3.6.0",
-    "electron": "^28.0.0",
-    "electron-builder": "^24.13.3"
+    "nodemon": "^3.0.3"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "multer": "^1.4.5-lts.1",
     "sqlite3": "^5.1.7",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.1"
   },
   "build": {
     "appId": "com.digitaldetective.guide",

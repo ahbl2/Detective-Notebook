@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Detective Guide</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/icons.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>Digital Detective Guide</h1>
+            </div>
+            <div class="sidebar-section">
+                <h2>The Guide</h2>
+                <ul>
+                    <li><a href="#" data-section="dashboard">Dashboard</a></li>
+                    <li><a href="#" data-section="categories">Categories</a></li>
+                </ul>
+            </div>
+            <div class="sidebar-section">
+                <h2>Asset Manager</h2>
+                <ul>
+                    <li><a href="#" data-section="asset-types">Asset Types</a></li>
+                    <li><a href="#" data-section="assets">Assets</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="main-content">
+            <div id="dashboard" class="content-section">
+                <h2>Dashboard</h2>
+                <div class="dashboard-stats">
+                    <!-- Stats will be populated by JavaScript -->
+                </div>
+            </div>
+            <div id="categories" class="content-section" style="display: none;">
+                <h2>Categories</h2>
+                <div class="category-list">
+                    <!-- Categories will be populated by JavaScript -->
+                </div>
+            </div>
+            <div id="asset-types" class="content-section" style="display: none;">
+                <h2>Asset Types</h2>
+                <button id="create-asset-type" class="btn-primary">Create New Asset Type</button>
+                <div class="asset-type-list">
+                    <!-- Asset types will be populated by JavaScript -->
+                </div>
+            </div>
+            <div id="assets" class="content-section" style="display: none;">
+                <h2>Assets</h2>
+                <div class="asset-list">
+                    <!-- Assets will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="asset-type-modal" class="modal">
+        <div class="modal-content">
+            <h3>Create Asset Type</h3>
+            <form id="asset-type-form">
+                <div class="form-group">
+                    <label for="asset-type-name">Name</label>
+                    <input type="text" id="asset-type-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Fields</label>
+                    <div id="asset-type-fields">
+                        <!-- Fields will be added dynamically -->
+                    </div>
+                    <button type="button" id="add-field" class="btn-secondary">Add Field</button>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Save</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('asset-type-modal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/js/api-client.js"></script>
+    <script src="/js/main.js"></script>
+</body>
+</html> 
