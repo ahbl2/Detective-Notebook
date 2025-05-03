@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld(
     addAsset: (data) => ipcRenderer.invoke('add-asset', data),
     updateAsset: (data) => ipcRenderer.invoke('update-asset', data),
     deleteAsset: (id) => ipcRenderer.invoke('delete-asset', id),
-    exportAssetsToCSV: (data) => ipcRenderer.invoke('export-assets-to-csv', data)
+    exportAssetsToCSV: (data) => ipcRenderer.invoke('export-assets-to-csv', data),
+    
+    // Section management
+    getSections: () => ipcRenderer.invoke('get-sections'),
+    setCurrentSection: (sectionId) => ipcRenderer.invoke('set-current-section', sectionId),
+    toggleGuideDropdown: (isOpen) => ipcRenderer.invoke('toggle-guide-dropdown', isOpen)
   }
 ); 

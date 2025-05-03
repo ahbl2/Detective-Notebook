@@ -11,6 +11,17 @@ let mainWindow;
 let db = null;
 let config;
 
+// Section management
+const sections = [
+    { id: 'guide', name: 'The Guide', icon: 'fa-book', isGuide: true },
+    { id: 'templates', name: 'Templates', icon: 'fa-file-alt' },
+    { id: 'assets', name: 'Asset Manager', icon: 'fa-database' },
+    { id: 'help', name: 'Help', icon: 'fa-question-circle' }
+];
+
+let currentSection = 'guide';
+let guideDropdownOpen = false;
+
 // Database connection management
 async function connectToDatabase() {
   return new Promise((resolve, reject) => {
@@ -1679,6 +1690,21 @@ ipcMain.handle('delete-asset', async (event, id) => {
       else resolve({ success: true });
     });
   });
+});
+
+// IPC Handlers for sections
+ipcMain.handle('get-sections', () => {
+    return sections;
+});
+
+ipcMain.handle('set-current-section', (event, sectionId) => {
+    currentSection = sectionId;
+    return true;
+});
+
+ipcMain.handle('toggle-guide-dropdown', (event, isOpen) => {
+    guideDropdownOpen = isOpen;
+    return true;
 });
 
 // This method will be called when Electron has finished initialization

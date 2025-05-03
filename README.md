@@ -1,73 +1,97 @@
-# Digital Detective Guide - Web Version
+# Digital Detective Guide
 
-A web-based knowledge management system for detectives, built with Node.js and Express.
+A portable knowledge base application for detectives to store and share investigative wisdom, templates, and resources.
 
 ## Features
 
-- Asset Type Management
-- Asset Creation and Organization
-- File Upload Support
-- Responsive Web Interface
-- SQLite Database for Data Storage
-
-## Prerequisites
-
-- Node.js (v14 or higher)
-- npm (v6 or higher)
+- 100% offline operation
+- Portable (runs from USB drive)
+- Cross-platform support (Windows and Mac)
+- Secure data storage
+- Easy knowledge sharing through export/import
+- File attachments support
+- Rating system
+- Search functionality
+- Category management
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd digital-detective-guide
+1. Download the latest release for your operating system:
+   - Windows: `DigitalDetectiveGuide.exe`
+   - Mac: `DigitalDetectiveGuide.app`
+
+2. Copy the application to your USB drive or preferred location
+
+3. Run the application:
+   - Windows: Double-click `DigitalDetectiveGuide.exe`
+   - Mac: Double-click `DigitalDetectiveGuide.app`
+
+## First Launch
+
+On first launch, the application will:
+1. Create necessary folders and database
+2. Generate a unique device ID
+3. Set up default categories
+
+## Usage
+
+### Adding Entries
+1. Click "New Entry" button
+2. Fill in the entry details:
+   - Title
+   - Category
+   - Description
+   - Detective Wisdom
+   - Tags
+   - Attach files (optional)
+3. Click "Save Entry"
+
+### Managing Categories
+- View categories in the sidebar
+- Add new categories using the "Add Category" button
+- Click a category to view its entries
+
+### Searching
+- Use the search bar to find entries
+- Search across titles, descriptions, wisdom, and tags
+- Results update in real-time
+
+### Sharing Knowledge
+1. Click "Export" to create a merge package
+2. Share the generated ZIP file with other detectives
+3. They can import it using the "Import" button
+
+## File Structure
+
+```
+DigitalDetectiveGuide/
+├── DigitalDetectiveGuide.exe (or .app)
+├── notebook.db
+├── files/
+├── exports/
+├── help/
+├── config.json
+├── main.js
+├── index.html
+├── style.css
+├── renderer.js
+└── preload.js
 ```
 
-2. Install dependencies:
-```bash
-npm install
-```
+## Security
 
-3. Start the server:
-```bash
-npm start
-```
+- All data is stored locally
+- No internet connection required
+- Files are stored with unique identifiers
+- Regular backups recommended
 
-For development with auto-reload:
-```bash
-npm run dev
-```
+## Support
 
-## Project Structure
-
-```
-digital-detective-guide/
-├── public/              # Static files
-│   ├── css/            # Stylesheets
-│   └── js/             # Client-side JavaScript
-├── uploads/            # File upload directory
-├── server.js           # Main server file
-├── package.json        # Project configuration
-└── README.md           # This file
-```
-
-## API Endpoints
-
-- `GET /api/asset-types` - Get all asset types
-- `POST /api/asset-types` - Create a new asset type
-- `GET /api/assets/:typeId` - Get assets by type
-- `POST /api/assets` - Create a new asset
-- `POST /api/files` - Upload a file
-
-## Development
-
-The application uses:
-- Express.js for the server
-- SQLite3 for the database
-- Multer for file uploads
-- Helmet for security headers
-- CORS for cross-origin requests
+For help and support:
+1. Click the "Help" button in the application
+2. Refer to the user guide in the `help` folder
+3. Contact your department's technical support
 
 ## License
 
-ISC 
+This software is provided for official law enforcement use only. Unauthorized distribution or use is prohibited. 
