@@ -46,6 +46,19 @@ const API_BASE_URL = window.location.origin + '/api';
 let currentUser = null;
 let authToken = localStorage.getItem('authToken');
 
+// Allowed file types for uploads
+const ALLOWED_FILE_TYPES = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx'
+};
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 // API Service
 const apiService = {
     // Auth
@@ -2333,10 +2346,10 @@ async function handleAssetDelete(assetId) {
 async function handleAssetUpdate(asset, type, field_values) {
     try {
         if (asset.id) {
-            await apiService.updateAsset({ id: asset.id, type_id: type.id, field_values });
+            await apiService.updateAsset({ id: asset.id, type_id: type.id, fields: field_values });
             showNotification('Asset updated successfully', 'success');
         } else {
-            await apiService.addAsset({ type_id: type.id, field_values });
+            await apiService.addAsset({ type_id: type.id, fields: field_values });
             showNotification('Asset added successfully', 'success');
         }
         await renderAssetTypeSpreadsheetPage(type.id);
@@ -2634,13 +2647,13 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
     try {
         // Show loading spinner
         entriesContainer.innerHTML = '<div class="assets-spinner"></div>';
-        const [type, assets] = await Promise.all([
-            apiService.getAssetTypes().then(types => types.find(t => t.id === typeId)),
-            apiService.getAssets(typeId)
-        ]);
-        console.log('Loaded asset type:', type);
-        console.log('Asset type fields:', type ? type.fields : undefined);
-        // Parse fields if needed
+        
+        // Fetch data
+        const assetTypes = await apiService.getAssetTypes();
+        const type = assetTypes.find(t => t.id === typeId);
+        const assets = await apiService.getAssets(typeId);
+        
+        // Parse fields
         let fields = type.fields;
         if (typeof fields === 'string') {
             try {
@@ -2649,13 +2662,16 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
                 fields = [];
             }
         }
-        // Sorting state
-        let sortField = fields[0]?.name || '';
-        let sortAsc = true;
+
+        // Initialize state
+        let sortField = type.default_sort_field || fields[0]?.name || '';
+        let sortAsc = type.default_sort_asc ?? true;
         let filterText = '';
         let selectedAssets = new Set();
         let currentPage = 1;
-        let pageSize = 10;
+        let pageSize = 20;
+        let lockedRows = new Set(); // Track locked rows
+
         // Helper to sort and filter assets
         function getFilteredSortedAssets() {
             let filtered = assets;
@@ -2676,278 +2692,275 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
             }
             return filtered;
         }
+
         // Helper to render table
         function renderTable(filteredAssets) {
-            // Pagination
-            const totalItems = filteredAssets.length;
-            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-            if (currentPage > totalPages) currentPage = totalPages;
-            const startIdx = (currentPage - 1) * pageSize;
-            const endIdx = Math.min(startIdx + pageSize, totalItems);
-            const paginatedAssets = filteredAssets.slice(startIdx, endIdx);
-
-            // Force entriesContainer and asset-type-page to fill main content area
-            entriesContainer.style.maxWidth = 'none';
-            entriesContainer.style.width = '100%';
-            entriesContainer.style.margin = '0';
-            entriesContainer.style.padding = '0';
-            entriesContainer.style.display = 'block';
-
-            // Smart column width calculation (percentages)
-            const fixedWidthsPx = {
-                checkbox: 40,
-                actions: 80
-            };
-            const typeWeights = {
-                text: 3,
-                number: 1.5,
-                date: 1.2,
-                time: 1.2,
-                location: 1.5,
-                weblink: 2,
-                select: 1.2
-            };
-            // Use the width of entriesContainer's parent (main-content) for calculation
-            const parentWidth = entriesContainer.parentElement ? entriesContainer.parentElement.offsetWidth : window.innerWidth;
-            const tableWidthPx = parentWidth;
-            const totalFixedPx = fixedWidthsPx.checkbox + fixedWidthsPx.actions;
-            const fieldWeights = fields.map(f => typeWeights[f.type] || 2);
-            const totalWeight = fieldWeights.reduce((a, b) => a + b, 0);
-            const availablePx = tableWidthPx - totalFixedPx;
-            const fieldPercents = fields.map((f, i) => {
-                const px = (fieldWeights[i] / totalWeight) * availablePx;
-                return (px / tableWidthPx) * 100;
-            });
-            const checkboxPercent = (fixedWidthsPx.checkbox / tableWidthPx) * 100;
-            const actionsPercent = (fixedWidthsPx.actions / tableWidthPx) * 100;
+            const startIndex = (currentPage - 1) * pageSize;
+            const paginatedAssets = filteredAssets.slice(startIndex, startIndex + pageSize);
+            const totalPages = Math.ceil(filteredAssets.length / pageSize);
 
             entriesContainer.innerHTML = `
-                <div class="asset-type-page" style="max-width:none;width:100%;margin:0;padding:0;display:block;overflow-x:auto;">
-                    <div class="asset-type-header" style="max-width:none;width:100%;margin:0;padding:0;">
-                        <button class="back-to-types-btn"><i class="fas fa-arrow-left"></i> Back</button>
-                        <h2><i class="fas fa-table"></i> ${type.name} Assets</h2>
-                        <button class="add-asset-btn"><i class="fas fa-plus"></i> New Asset</button>
-                        <button class="bulk-delete-btn" style="margin-left:16px;${selectedAssets.size ? '' : 'display:none;'}"><i class="fas fa-trash"></i> Delete Selected</button>
-                        <input class="asset-search-input" type="text" placeholder="Search assets..." style="margin-left:24px;min-width:200px;" value="${filterText}">
-                        <select class="asset-page-size-select" style="margin-left:16px;">
-                            <option value="5" ${pageSize==5?'selected':''}>5</option>
-                            <option value="10" ${pageSize==10?'selected':''}>10</option>
-                            <option value="25" ${pageSize==25?'selected':''}>25</option>
-                            <option value="50" ${pageSize==50?'selected':''}>50</option>
-                        </select>
+                <div class="assets-spreadsheet-container">
+                    <div class="assets-toolbar">
+                        <div class="assets-search">
+                            <input type="text" class="assets-filter-input" placeholder="Search assets..." value="${filterText}">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <div class="assets-actions">
+                            <button class="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
+                            <button class="export-assets-btn" ${filteredAssets.length === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <button class="bulk-delete-btn" ${selectedAssets.size === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-trash"></i> Delete Selected
+                            </button>
+                        </div>
                     </div>
-                    <div class="assets-table-wrapper" style="overflow-x:auto;width:100%;">
-                    <table class="assets-table" style="width:100%;min-width:900px;">
-                        <thead>
-                            <tr>
-                                <th class="col-checkbox" style="width:${checkboxPercent}%;min-width:40px"><input type="checkbox" class="bulk-checkbox-all" ${selectedAssets.size && paginatedAssets.every(a=>selectedAssets.has(a.id)) ? 'checked' : ''}></th>
-                                ${fields.map((f, i) => {
-                                    const colClass = `col-${f.type}`;
-                                    // Set a min-width for usability
-                                    return `<th class="${colClass} sortable" data-field="${f.name}" style="width:${fieldPercents[i]}%;min-width:120px;">${f.name} <i class="fas fa-sort"></i></th>`;
+                    
+                    <div class="assets-table-container">
+                        <table class="assets-table">
+                            <thead>
+                                <tr>
+                                    <th class="select-column">
+                                        <input type="checkbox" class="bulk-select-checkbox" ${filteredAssets.length === 0 ? 'disabled' : ''}>
+                                    </th>
+                                    ${fields.map(field => `
+                                        <th class="sortable" data-field="${field.name}">
+                                            ${field.name}
+                                            <span class="sort-indicator">
+                                                ${sortField === field.name ? (sortAsc ? '↑' : '↓') : ''}
+                                            </span>
+                                        </th>
+                                    `).join('')}
+                                    <th class="actions-column">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${paginatedAssets.map(asset => {
+                                    const isLocked = lockedRows.has(asset.id);
+                                    return `
+                                        <tr class="asset-row ${isLocked ? 'locked' : ''}" data-asset-id="${asset.id}">
+                                            <td class="select-column">
+                                                <input type="checkbox" class="asset-checkbox" 
+                                                    ${isLocked ? 'disabled' : ''}
+                                                    ${selectedAssets.has(asset.id) ? 'checked' : ''}>
+                                            </td>
+                                            ${fields.map(field => {
+                                                const value = (asset.fields || {})[field.name] || '';
+                                                // Locked mode rendering
+                                                if (isLocked) {
+                                                    if (field.type === 'file') {
+                                                        if (value && typeof value === 'object' && value.path) {
+                                                            const fileName = value.name || value.path.split('/').pop();
+                                                            return `<td class="editable-cell"><span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value.path}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value.path}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span></td>`;
+                                                        } else if (typeof value === 'string' && value) {
+                                                            const fileName = value.split('/').pop();
+                                                            return `<td class="editable-cell"><span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span></td>`;
+                                                        } else {
+                                                            return `<td class="editable-cell"><span class="locked-value text-muted"><i class='fas fa-file-alt'></i> No file attached</span></td>`;
+                                                        }
+                                                    } else {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value}</span></td>`;
+                                                    }
+                                                } else {
+                                                    // Edit mode rendering
+                                                    if (field.type === 'file') {
+                                                        let fileHtml = '';
+                                                        if (value && typeof value === 'object' && value.path) {
+                                                            const fileName = value.name || value.path.split('/').pop();
+                                                            fileHtml += `<span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value.path}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value.path}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span><br>`;
+                                                            fileHtml += `<button type='button' class='delete-file-btn' data-field='${field.name}' title='Remove file'><i class='fas fa-trash'></i></button>`;
+                                                        } else if (typeof value === 'string' && value) {
+                                                            const fileName = value.split('/').pop();
+                                                            fileHtml += `<span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span><br>`;
+                                                            fileHtml += `<button type='button' class='delete-file-btn' data-field='${field.name}' title='Remove file'><i class='fas fa-trash'></i></button>`;
+                                                        }
+                                                        fileHtml += `<input type="file" class="asset-file-input" data-field="${field.name}">`;
+                                                        fileHtml += `<span class='file-upload-progress' style='display:none;'></span>`;
+                                                        return `<td class="editable-cell">${fileHtml}</td>`;
+                                                    } else {
+                                                        return `<td class="editable-cell"><input type="text" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter ${field.name}"></td>`;
+                                                    }
+                                                }
+                                            }).join('')}
+                                            <td class="actions-column">
+                                                <button class="lock-row-btn" title="${isLocked ? 'Unlock' : 'Lock'} row">
+                                                    <i class="fas ${isLocked ? 'fa-lock' : 'fa-lock-open'}"></i>
+                                                </button>
+                                                <button class="save-row-btn" ${isLocked ? 'disabled' : ''} title="Save changes">
+                                                    <i class="fas fa-save"></i>
+                                                </button>
+                                                <button class="delete-row-btn" ${isLocked ? 'disabled' : ''} title="Delete">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
                                 }).join('')}
-                                <th class="col-actions" style="width:${actionsPercent}%;min-width:80px">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr class="quick-add-row">
-                                <td class="col-checkbox" style="width:${checkboxPercent}%;min-width:40px"></td>
-                                ${fields.map((f, i) => {
-                                    const colClass = `col-${f.type}`;
-                                    const style = `style=\"width:${fieldPercents[i]}%;min-width:120px;\"`;
-                                    if (f.type === 'number') {
-                                        return `<td class="${colClass}" ${style}><input type="number" name="${f.name}" class="quick-add-input"></td>`;
-                                    } else if (f.type === 'date') {
-                                        return `<td class="${colClass}" ${style}><input type="date" name="${f.name}" class="quick-add-input"></td>`;
-                                    } else if (f.type === 'time') {
-                                        return `<td class="${colClass}" ${style}><input type="time" name="${f.name}" class="quick-add-input"></td>`;
-                                    } else if (f.type === 'location') {
-                                        return `<td class="${colClass}" ${style}><input type="text" name="${f.name}" class="quick-add-input" placeholder="Location"></td>`;
-                                    } else if (f.type === 'weblink') {
-                                        return `<td class="${colClass}" ${style}><input type="url" name="${f.name}" class="quick-add-input" placeholder="https://example.com"></td>`;
-                                    } else if (f.type === 'select') {
-                                        const opts = (f.options || '').split(',').map(opt => opt.trim()).filter(Boolean);
-                                        return `<td class="${colClass}" ${style}><select name="${f.name}" class="quick-add-input">${opts.map(opt => `<option value="${opt}">${opt}</option>`).join('')}</select></td>`;
-                                    } else {
-                                        return `<td class="${colClass}" ${style}><input type="text" name="${f.name}" class="quick-add-input"></td>`;
-                                    }
-                                }).join('')}
-                                <td class="col-actions" style="width:${actionsPercent}%;min-width:80px"><button class="quick-add-save-btn"><i class="fas fa-check"></i></button></td>
-                            </tr>
-                            ${paginatedAssets.length === 0 ? `<tr><td colspan="${fields.length + 2}"><div class="assets-empty-state"><i class="fas fa-box-open"></i><div>No assets found.</div></div></td></tr>` : ''}
-                            ${paginatedAssets.map(asset => {
-                                const values = asset.fields || {};
-                                return `<tr data-asset-id="${asset.id}">
-                                    <td class="col-checkbox" style="width:${checkboxPercent}%;min-width:40px"><input type="checkbox" class="bulk-checkbox" data-id="${asset.id}" ${selectedAssets.has(asset.id) ? 'checked' : ''}></td>
-                                    ${fields.map((f, i) => {
-                                        const colClass = `col-${f.type}`;
-                                        const value = values[f.name] || '';
-                                        const style = `style=\"width:${fieldPercents[i]}%;min-width:120px;\"`;
-                                        return `<td class="${colClass} editable-cell" data-field="${f.name}" data-type="${f.type}" ${style}>${value}</td>`;
-                                    }).join('')}
-                                    <td class="col-actions" style="width:${actionsPercent}%;min-width:80px">
-                                        <button class="edit-asset-btn" title="Edit"><i class="fas fa-edit"></i></button>
-                                        <button class="delete-asset-btn" title="Delete"><i class="fas fa-trash"></i></button>
-                                    </td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
+                            </tbody>
+                        </table>
                     </div>
-                    <div id="assets-pagination"></div>
+
+                    <div class="assets-pagination">
+                        <button class="prev-page-btn" ${currentPage === 1 ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+                        <button class="next-page-btn" ${currentPage === totalPages ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
                 </div>
             `;
 
-            // Attach event listeners inside the new .assets-table-wrapper
-            const tableWrapper = entriesContainer.querySelector('.assets-table-wrapper');
-            const tableScope = tableWrapper ? tableWrapper : entriesContainer;
+            // Add event listeners
+            setupTableEventListeners();
+        }
 
-            // Bulk select
-            tableScope.querySelector('.bulk-checkbox-all')?.addEventListener('change', e => {
-                const checked = e.target.checked;
-                paginatedAssets.forEach(asset => {
-                    if (checked) selectedAssets.add(asset.id);
-                    else selectedAssets.delete(asset.id);
-                });
+        // Helper to setup event listeners
+        function setupTableEventListeners() {
+            // Search input
+            const searchInput = entriesContainer.querySelector('.assets-filter-input');
+            searchInput.addEventListener('input', debounce((e) => {
+                filterText = e.target.value;
+                currentPage = 1;
                 renderTable(getFilteredSortedAssets());
-            });
-            tableScope.querySelectorAll('.bulk-checkbox').forEach(cb => {
-                cb.addEventListener('change', e => {
-                    const id = cb.dataset.id;
-                    if (cb.checked) selectedAssets.add(id);
-                    else selectedAssets.delete(id);
-                    renderTable(getFilteredSortedAssets());
-                });
-            });
-            // Bulk delete
-            const bulkDeleteBtn = entriesContainer.querySelector('.bulk-delete-btn');
-            if (bulkDeleteBtn) {
-                bulkDeleteBtn.addEventListener('click', async () => {
-                    if (!selectedAssets.size) return;
-                    if (!confirm('Delete selected assets?')) return;
-                    for (const id of selectedAssets) {
-                        await handleAssetDelete(id);
+            }, 300));
+
+            // Sort headers
+            entriesContainer.querySelectorAll('.sortable').forEach(header => {
+                header.addEventListener('click', () => {
+                    const field = header.dataset.field;
+                    if (sortField === field) {
+                        sortAsc = !sortAsc;
+                    } else {
+                        sortField = field;
+                        sortAsc = true;
                     }
-                    selectedAssets.clear();
                     renderTable(getFilteredSortedAssets());
                 });
-            }
-            // Back button
-            entriesContainer.querySelector('.back-to-types-btn').addEventListener('click', () => {
-                assetManagerView = 'list';
-                renderAssetManagerPage();
             });
-            // Add asset modal
-            entriesContainer.querySelector('.add-asset-btn').addEventListener('click', () => showAddAssetModal(type));
-            // Edit/delete asset
-            tableScope.querySelectorAll('.edit-asset-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const row = e.target.closest('tr');
-                    const assetId = row.dataset.assetId;
-                    const asset = assets.find(a => a.id === assetId);
-                    showAddAssetModal(type, asset);
+
+            // Bulk selection
+            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
+            bulkCheckbox.addEventListener('change', (e) => {
+                const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                    if (e.target.checked) {
+                        selectedAssets.add(cb.closest('tr').dataset.assetId);
+                    } else {
+                        selectedAssets.delete(cb.closest('tr').dataset.assetId);
+                    }
+                });
+                updateBulkActions();
+            });
+
+            // Individual selection
+            entriesContainer.querySelectorAll('.asset-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const assetId = e.target.closest('tr').dataset.assetId;
+                    if (e.target.checked) {
+                        selectedAssets.add(assetId);
+                    } else {
+                        selectedAssets.delete(assetId);
+                    }
+                    updateBulkSelection();
+                    updateBulkActions();
                 });
             });
-            tableScope.querySelectorAll('.delete-asset-btn').forEach(btn => {
+
+            // Lock/unlock rows
+            entriesContainer.querySelectorAll('.lock-row-btn').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const row = e.target.closest('tr');
-                    if (confirm('Delete this asset?')) {
-                        await handleAssetDelete(row.dataset.assetId);
-                        renderTable(getFilteredSortedAssets());
-                    }
-                });
-            });
-            // Inline editing for cells
-            tableScope.querySelectorAll('.editable-cell').forEach(cell => {
-                cell.addEventListener('click', function() {
-                    if (cell.querySelector('input, select')) return; // Already editing
-                    const field = cell.dataset.field;
-                    const typeVal = cell.dataset.type;
-                    const oldValue = cell.textContent;
-                    let input;
-                    if (typeVal === 'number') {
-                        input = document.createElement('input');
-                        input.type = 'number';
-                    } else if (typeVal === 'date') {
-                        input = document.createElement('input');
-                        input.type = 'date';
-                    } else if (typeVal === 'time') {
-                        input = document.createElement('input');
-                        input.type = 'time';
-                    } else if (typeVal === 'location') {
-                        input = document.createElement('input');
-                        input.type = 'text';
-                        input.placeholder = 'Location';
-                    } else if (typeVal === 'weblink') {
-                        input = document.createElement('input');
-                        input.type = 'url';
-                        input.placeholder = 'https://example.com';
-                    } else if (typeVal === 'select') {
-                        input = document.createElement('select');
-                        const opts = fields.find(f => f.name === field).options.split(',').map(opt => opt.trim()).filter(Boolean);
-                        opts.forEach(opt => {
-                            const option = document.createElement('option');
-                            option.value = opt;
-                            option.textContent = opt;
-                            if (opt === oldValue) option.selected = true;
-                            input.appendChild(option);
-                        });
+                    const assetId = row.dataset.assetId;
+                    if (lockedRows.has(assetId)) {
+                        lockedRows.delete(assetId);
                     } else {
-                        input = document.createElement('input');
-                        input.type = 'text';
+                        lockedRows.add(assetId);
                     }
-                    input.value = oldValue;
-                    input.className = 'inline-edit-input';
-                    cell.textContent = '';
-                    cell.appendChild(input);
-                    input.focus();
-                    input.addEventListener('blur', async function() {
-                        await saveInlineEdit(cell, input.value, typeId, fields, assets);
-                        renderTable(getFilteredSortedAssets());
-                    });
-                    input.addEventListener('keydown', async function(e) {
-                        if (e.key === 'Enter') {
-                            input.blur();
-                        } else if (e.key === 'Escape') {
-                            cell.textContent = oldValue;
-                        }
-                    });
-                });
-            });
-            // Keyboard navigation for quick-add row
-            const quickAddInputs = tableScope.querySelectorAll('.quick-add-input');
-            quickAddInputs.forEach((input, idx) => {
-                input.addEventListener('keydown', e => {
-                    if (e.key === 'Enter') {
-                        entriesContainer.querySelector('.quick-add-save-btn').click();
-                    } else if (e.key === 'ArrowRight' && idx < quickAddInputs.length - 1) {
-                        quickAddInputs[idx + 1].focus();
-                    } else if (e.key === 'ArrowLeft' && idx > 0) {
-                        quickAddInputs[idx - 1].focus();
-                    }
-                });
-            });
-            // Quick add row
-            const quickAddBtn = entriesContainer.querySelector('.quick-add-save-btn');
-            quickAddBtn.addEventListener('click', async () => {
-                const row = quickAddBtn.closest('tr');
-                const inputs = row.querySelectorAll('.quick-add-input');
-                const fieldsObj = {};
-                fields.forEach((f, i) => {
-                    fieldsObj[f.name] = inputs[i].value;
-                });
-                try {
-                    await apiService.addAsset({ type_id: typeId, fields: fieldsObj });
-                    showNotification('Asset added', 'success');
-                    currentPage = 1;
                     renderTable(getFilteredSortedAssets());
-                } catch (err) {
-                    showNotification('Error adding asset', 'error');
+                });
+            });
+
+            // Save row
+            entriesContainer.querySelectorAll('.save-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    const inputs = row.querySelectorAll('.asset-field-input');
+                    const fieldValues = {};
+                    inputs.forEach(input => {
+                        fieldValues[input.dataset.field] = input.value;
+                    });
+                    await handleAssetUpdate({ id: assetId }, type, fieldValues);
+                });
+            });
+
+            // Delete row
+            entriesContainer.querySelectorAll('.delete-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    if (confirm('Are you sure you want to delete this asset?')) {
+                        await handleAssetDelete(assetId);
+                    }
+                });
+            });
+
+            // Pagination
+            entriesContainer.querySelector('.prev-page-btn').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable(getFilteredSortedAssets());
                 }
             });
 
-            // ... rest of the existing table setup code ...
+            entriesContainer.querySelector('.next-page-btn').addEventListener('click', () => {
+                const totalPages = Math.ceil(getFilteredSortedAssets().length / pageSize);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
+
+            // Export
+            entriesContainer.querySelector('.export-assets-btn').addEventListener('click', async () => {
+                const filteredAssets = getFilteredSortedAssets();
+                await handleExport(type, filteredAssets);
+            });
+
+            // Bulk delete
+            entriesContainer.querySelector('.bulk-delete-btn').addEventListener('click', async () => {
+                if (selectedAssets.size > 0 && confirm(`Are you sure you want to delete ${selectedAssets.size} selected assets?`)) {
+                    for (const assetId of selectedAssets) {
+                        await handleAssetDelete(assetId);
+                    }
+                    selectedAssets.clear();
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
         }
+
+        // Helper to update bulk selection checkbox
+        function updateBulkSelection() {
+            const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
+            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
+            const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+            bulkCheckbox.checked = checkedCount === checkboxes.length;
+            bulkCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+        }
+
+        // Helper to update bulk action buttons
+        function updateBulkActions() {
+            const exportBtn = entriesContainer.querySelector('.export-assets-btn');
+            const deleteBtn = entriesContainer.querySelector('.bulk-delete-btn');
+            const filteredAssets = getFilteredSortedAssets();
+            exportBtn.disabled = filteredAssets.length === 0;
+            deleteBtn.disabled = selectedAssets.size === 0;
+        }
+
         // Initial render
         renderTable(getFilteredSortedAssets());
     } catch (error) {
@@ -2956,381 +2969,864 @@ async function renderAssetTypeSpreadsheetPage(typeId) {
     }
 }
 
-// Helper for inline editing
-async function saveInlineEdit(cell, newValue, typeId, fields, assets) {
-    const row = cell.closest('tr');
-    const assetId = row.dataset.assetId;
-    const field = cell.dataset.field;
-    const asset = assets.find(a => a.id === assetId);
-    if (!asset) return;
-    const updatedValues = { ...(asset.fields || {}), [field]: newValue };
-    try {
-        await apiService.updateAsset({ id: assetId, type_id: typeId, fields: updatedValues });
-        cell.textContent = newValue;
-        showNotification('Saved', 'success');
-    } catch (err) {
-        cell.textContent = asset.fields[field] || '';
-        showNotification('Error saving', 'error');
-    }
+// --- Asset Modal Logic ---
+let currentAssetTypeForModal = null;
+
+function openAssetModal(assetType, onSave) {
+    currentAssetTypeForModal = assetType;
+    const modal = document.getElementById('asset-modal');
+    const form = document.getElementById('asset-form');
+    const fieldsContainer = document.getElementById('asset-fields-container');
+    form.reset();
+    fieldsContainer.innerHTML = '';
+
+    // Render fields
+    (assetType.fields || []).forEach(field => {
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'form-group';
+        fieldDiv.innerHTML = `<label>${field.name}:</label>`;
+        if (field.type === 'file') {
+            fieldDiv.innerHTML += `<input type="file" name="${field.name}" class="asset-file-input">`;
+        } else {
+            fieldDiv.innerHTML += `<input type="text" name="${field.name}" class="asset-field-input" placeholder="Enter ${field.name}">`;
+        }
+        fieldsContainer.appendChild(fieldDiv);
+    });
+
+    // Cancel button
+    form.querySelector('.cancel-btn').onclick = () => {
+        modal.style.display = 'none';
+        form.reset();
+    };
+
+    // Submit handler
+    form.onsubmit = async (e) => {
+        e.preventDefault();
+        const fieldValues = {};
+        let fileUploadPromises = [];
+        let fileFields = (assetType.fields || []).filter(f => f.type === 'file');
+        for (const field of assetType.fields) {
+            if (field.type === 'file') {
+                const fileInput = form.querySelector(`input[name="${field.name}"]`);
+                const file = fileInput.files[0];
+                if (file) {
+                    // Upload file
+                    const uploadPromise = apiService.uploadFile(file).then(result => {
+                        fieldValues[field.name] = { path: result.path || result.filePath || result.filename || '', name: result.originalname || file.name };
+                    });
+                    fileUploadPromises.push(uploadPromise);
+                } else {
+                    fieldValues[field.name] = '';
+                }
+            } else {
+                const input = form.querySelector(`input[name="${field.name}"]`);
+                fieldValues[field.name] = input.value;
+            }
+        }
+        // Wait for all file uploads
+        await Promise.all(fileUploadPromises);
+        // Call onSave
+        await onSave(fieldValues);
+        modal.style.display = 'none';
+        form.reset();
+    };
+
+    // Show modal
+    modal.style.display = 'block';
 }
 
-// --- Asset Type Modal Implementation ---
+// --- Patch renderAssetTypeSpreadsheetPage to wire up Add Asset button ---
+const originalRenderAssetTypeSpreadsheetPage = renderAssetTypeSpreadsheetPage;
+renderAssetTypeSpreadsheetPage = async function(typeId) {
+    await originalRenderAssetTypeSpreadsheetPage(typeId);
+    // After table is rendered, wire up Add Asset button
+    const assetTypes = await apiService.getAssetTypes();
+    const type = assetTypes.find(t => t.id === typeId);
+    const addBtn = document.querySelector('.add-asset-btn');
+    if (addBtn && type) {
+        addBtn.onclick = () => {
+            openAssetModal(type, async (fieldValues) => {
+                await apiService.addAsset({ type_id: type.id, fields: fieldValues });
+                await renderAssetTypeSpreadsheetPage(type.id);
+            });
+        };
+    }
+};
+
+// --- Patch renderAssetTypesCardsPage to wire up New Asset Type button ---
+const originalRenderAssetTypesCardsPage = renderAssetTypesCardsPage;
+renderAssetTypesCardsPage = async function() {
+    await originalRenderAssetTypesCardsPage();
+    const addTypeBtn = document.querySelector('.add-asset-type-btn');
+    if (addTypeBtn) {
+        addTypeBtn.onclick = () => showAssetTypeModal();
+    }
+};
+
+// ... existing code ...
+
 function showAssetTypeModal(type = null) {
-    // Remove any existing modal
-    document.getElementById('asset-type-modal')?.remove();
+    const modal = document.getElementById('asset-type-modal');
+    const form = document.getElementById('asset-type-form');
+    const fieldsContainer = document.getElementById('fields-container');
+    form.reset();
+    fieldsContainer.innerHTML = '';
 
-    // Create modal HTML
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.id = 'asset-type-modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <h2>${type ? 'Edit' : 'Add'} Asset Type</h2>
-            <form id="asset-type-form">
-                <div class="form-group">
-                    <label for="type-name">Name:</label>
-                    <input type="text" id="type-name" name="name" required value="${type ? type.name : ''}">
-                </div>
-                <div class="form-group">
-                    <label>Fields:</label>
-                    <div id="fields-container"></div>
-                    <button type="button" class="add-field-btn"><i class="fas fa-plus"></i> Add Field</button>
-                </div>
-                <div class="modal-buttons">
-                    <button type="button" class="cancel-btn">Cancel</button>
-                    <button type="submit" class="save-btn">Save</button>
-                </div>
-            </form>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    modal.style.display = 'block';
-
-    // Field management
-    const fieldsContainer = modal.querySelector('#fields-container');
-    function addFieldRow(name = '', typeVal = 'text', options = '') {
-        const row = document.createElement('div');
-        row.className = 'field-row';
-        row.innerHTML = `
-            <input type="text" class="field-name-input" placeholder="Field name" value="${name}">
-            <select class="field-type-select">
-                <option value="text" ${typeVal === 'text' ? 'selected' : ''}>Text</option>
-                <option value="number" ${typeVal === 'number' ? 'selected' : ''}>Number</option>
-                <option value="date" ${typeVal === 'date' ? 'selected' : ''}>Date</option>
-                <option value="time" ${typeVal === 'time' ? 'selected' : ''}>Time</option>
-                <option value="location" ${typeVal === 'location' ? 'selected' : ''}>Location</option>
-                <option value="weblink" ${typeVal === 'weblink' ? 'selected' : ''}>Web Link</option>
-                <option value="select" ${typeVal === 'select' ? 'selected' : ''}>Dropdown</option>
-            </select>
-            <input type="text" class="field-options-input" placeholder="Options (comma separated)" value="${options}" style="display:${typeVal === 'select' ? 'inline-block' : 'none'};width:180px;">
-            <button type="button" class="remove-field-btn"><i class="fas fa-times"></i></button>
-        `;
-        const typeSelect = row.querySelector('.field-type-select');
-        const optionsInput = row.querySelector('.field-options-input');
-        typeSelect.addEventListener('change', () => {
-            optionsInput.style.display = typeSelect.value === 'select' ? 'inline-block' : 'none';
-        });
-        row.querySelector('.remove-field-btn').addEventListener('click', () => row.remove());
-        fieldsContainer.appendChild(row);
-    }
-    modal.querySelector('.add-field-btn').addEventListener('click', () => addFieldRow());
     // If editing, populate fields
-    if (type && Array.isArray(type.fields)) {
-        type.fields.forEach(f => addFieldRow(f.name, f.type, f.options || ''));
+    if (type) {
+        document.getElementById('type-name').value = type.name || '';
+        (type.fields || []).forEach(field => {
+            addFieldRow(fieldsContainer, field);
+        });
+    } else {
+        document.getElementById('type-name').value = '';
     }
 
-    // Modal close logic
-    function closeModal() { modal.remove(); }
-    modal.querySelector('.cancel-btn').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
-    // Form submit logic
-    modal.querySelector('#asset-type-form').addEventListener('submit', async (e) => {
+    // Add field button
+    form.querySelector('.add-field-btn').onclick = (e) => {
         e.preventDefault();
-        const name = modal.querySelector('#type-name').value.trim();
+        addFieldRow(fieldsContainer);
+    };
+
+    // Cancel button
+    form.querySelector('.cancel-btn').onclick = () => {
+        modal.style.display = 'none';
+        form.reset();
+        fieldsContainer.innerHTML = '';
+    };
+
+    // Save handler
+    form.onsubmit = async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('type-name').value.trim();
         const fields = Array.from(fieldsContainer.querySelectorAll('.field-row')).map(row => {
-            const fieldName = row.querySelector('.field-name-input').value.trim();
-            const fieldType = row.querySelector('.field-type-select').value;
-            const fieldOptions = row.querySelector('.field-options-input').value.trim();
-            return fieldType === 'select'
-                ? { name: fieldName, type: fieldType, options: fieldOptions }
-                : { name: fieldName, type: fieldType };
+            return {
+                name: row.querySelector('.field-name').value.trim(),
+                type: row.querySelector('.field-type').value
+            };
         }).filter(f => f.name);
-        if (!name) {
-            showNotification('Asset type name is required', 'error');
+        if (!name || fields.length === 0) {
+            showNotification('Name and at least one field are required', 'error');
             return;
         }
-        try {
-            if (type && type.id) {
-                await apiService.updateAssetType({ id: type.id, name, fields });
-                showNotification('Asset type updated successfully', 'success');
-            } else {
-                await apiService.addAssetType({ name, fields });
-                showNotification('Asset type added successfully', 'success');
-            }
-            closeModal();
-            await renderAssetTypesCardsPage();
-            // If editing, refresh spreadsheet view if open
-            if (type && type.id && assetManagerView === 'type' && selectedAssetTypeId === type.id) {
-                await renderAssetTypeSpreadsheetPage(type.id);
-            }
-        } catch (error) {
-            showNotification('Error saving asset type', 'error');
+        if (type && type.id) {
+            await apiService.updateAssetType({ id: type.id, name, fields });
+        } else {
+            await apiService.addAssetType({ name, fields });
         }
-    });
+        modal.style.display = 'none';
+        form.reset();
+        fieldsContainer.innerHTML = '';
+        await renderAssetTypesCardsPage();
+    };
+
+    // Show modal
+    modal.style.display = 'block';
 }
 
-// --- Asset Modal Implementation ---
-async function showAddAssetModal(type, asset = null) {
-    // Remove any existing modal
-    document.getElementById('asset-modal')?.remove();
+function addFieldRow(container, field = { name: '', type: 'text' }) {
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.style.marginBottom = '8px';
+    row.innerHTML = `
+        <input type="text" class="field-name" placeholder="Field name" value="${field.name || ''}" style="flex:2;">
+        <select class="field-type" style="flex:1;">
+            <option value="text" ${field.type === 'text' ? 'selected' : ''}>Text</option>
+            <option value="number" ${field.type === 'number' ? 'selected' : ''}>Number</option>
+            <option value="date" ${field.type === 'date' ? 'selected' : ''}>Date</option>
+            <option value="time" ${field.type === 'time' ? 'selected' : ''}>Time</option>
+            <option value="url" ${field.type === 'url' ? 'selected' : ''}>Web Link</option>
+            <option value="location" ${field.type === 'location' ? 'selected' : ''}>Location</option>
+            <option value="file" ${field.type === 'file' ? 'selected' : ''}>File Upload</option>
+        </select>
+        <button type="button" class="remove-field-btn">&times;</button>
+    `;
+    row.querySelector('.remove-field-btn').onclick = () => row.remove();
+    container.appendChild(row);
+}
 
-    // Create modal HTML
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.id = 'asset-modal';
-    const fields = Array.isArray(type.fields) ? type.fields : [];
-    const existingFiles = asset && asset.files ? asset.files : [];
-    modal.innerHTML = `
-        <div class="modal-content">
-            <h2>${asset ? 'Edit' : 'Add'} Asset</h2>
-            <form id="asset-form">
-                <div id="asset-fields-container">
-                    ${fields.map(f => {
-                        const value = asset && asset.field_values ? (asset.field_values[f.name] || '') : '';
-                        if (f.type === 'number') {
-                            return `<div class="form-group"><label>${f.name}:</label><input type="number" name="${f.name}" value="${value}" required></div>`;
-                        } else if (f.type === 'date') {
-                            return `<div class="form-group"><label>${f.name}:</label><input type="date" name="${f.name}" value="${value}" required></div>`;
-                        } else if (f.type === 'time') {
-                            return `<div class="form-group"><label>${f.name}:</label><input type="time" name="${f.name}" value="${value}" required></div>`;
-                        } else if (f.type === 'location') {
-                            return `<div class="form-group"><label>${f.name}:</label><input type="text" name="${f.name}" value="${value}" placeholder="Enter location (address or coordinates)" required></div>`;
-                        } else if (f.type === 'weblink') {
-                            return `<div class="form-group"><label>${f.name}:</label><input type="url" name="${f.name}" value="${value}" placeholder="https://example.com" required></div>`;
-                        } else if (f.type === 'select') {
-                            const opts = (f.options || '').split(',').map(opt => opt.trim()).filter(Boolean);
-                            return `<div class="form-group"><label>${f.name}:</label><select name="${f.name}" required>${opts.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select></div>`;
-                        } else {
-                            return `<div class="form-group"><label>${f.name}:</label><input type="text" name="${f.name}" value="${value}" required></div>`;
-                        }
-                    }).join('')}
-                </div>
-                <div class="form-group">
-                    <label>Files:</label>
-                    <div class="file-upload-container">
-                        <div class="file-drop-zone" id="file-drop-zone">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <p>Drag & drop files here or click to browse</p>
-                            <input type="file" id="asset-file-input" name="files" multiple>
+// ... existing code ...
+
+// --- PATCHED renderAssetTypeSpreadsheetPage for improved field types and locked mode ---
+const originalRenderAssetTypeSpreadsheetPage2 = renderAssetTypeSpreadsheetPage;
+renderAssetTypeSpreadsheetPage = async function(typeId) {
+    try {
+        entriesContainer.innerHTML = '<div class="assets-spinner"></div>';
+        const assetTypes = await apiService.getAssetTypes();
+        const type = assetTypes.find(t => t.id === typeId);
+        const assets = await apiService.getAssets(typeId);
+        let fields = type.fields;
+        if (typeof fields === 'string') {
+            try { fields = JSON.parse(fields); } catch (e) { fields = []; }
+        }
+        let sortField = type.default_sort_field || fields[0]?.name || '';
+        let sortAsc = type.default_sort_asc ?? true;
+        let filterText = '';
+        let selectedAssets = new Set();
+        let currentPage = 1;
+        let pageSize = 20;
+        // Default all rows to locked mode
+        let lockedRows = new Set(assets.map(a => a.id));
+
+        function getFilteredSortedAssets() {
+            let filtered = assets;
+            if (filterText) {
+                filtered = filtered.filter(asset => {
+                    const values = asset.fields || {};
+                    return fields.some(f => (values[f.name] || '').toLowerCase().includes(filterText.toLowerCase()));
+                });
+            }
+            if (sortField) {
+                filtered = [...filtered].sort((a, b) => {
+                    const va = (a.fields || {})[sortField] || '';
+                    const vb = (b.fields || {})[sortField] || '';
+                    if (va < vb) return sortAsc ? -1 : 1;
+                    if (va > vb) return sortAsc ? 1 : -1;
+                    return 0;
+                });
+            }
+            return filtered;
+        }
+
+        function formatDate(val) {
+            if (!val) return '';
+            const d = new Date(val);
+            if (isNaN(d)) return val;
+            return d.toLocaleDateString();
+        }
+        function formatTime(val) {
+            if (!val) return '';
+            // Expecting HH:mm or HH:mm:ss
+            return val.length <= 5 ? val : val.slice(0, 8);
+        }
+
+        function renderTable(filteredAssets) {
+            const startIndex = (currentPage - 1) * pageSize;
+            const paginatedAssets = filteredAssets.slice(startIndex, startIndex + pageSize);
+            const totalPages = Math.ceil(filteredAssets.length / pageSize);
+            entriesContainer.innerHTML = `
+                <div class="assets-spreadsheet-container">
+                    <div class="assets-toolbar">
+                        <div class="assets-search">
+                            <input type="text" class="assets-filter-input" placeholder="Search assets..." value="${filterText}">
+                            <i class="fas fa-search"></i>
                         </div>
-                        <div class="file-restrictions">
-                            <p>Allowed file types: Images, PDFs, Documents</p>
-                            <p>Max file size: 10MB per file</p>
+                        <div class="assets-actions">
+                            <button class="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
+                            <button class="export-assets-btn" ${filteredAssets.length === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <button class="bulk-delete-btn" ${selectedAssets.size === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-trash"></i> Delete Selected
+                            </button>
                         </div>
                     </div>
-                    <div id="asset-files-list" class="files-list"></div>
-                </div>
-                <div class="modal-buttons">
-                    <button type="button" class="cancel-btn">Cancel</button>
-                    <button type="submit" class="save-btn">Save</button>
-                </div>
-            </form>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    modal.style.display = 'block';
-
-    // File management
-    let attachedFiles = [...existingFiles];
-    const fileInput = modal.querySelector('#asset-file-input');
-    const filesList = modal.querySelector('#asset-files-list');
-    const dropZone = modal.querySelector('#file-drop-zone');
-
-    // File type validation
-    const allowedTypes = {
-        'image/jpeg': 'jpg',
-        'image/png': 'png',
-        'image/gif': 'gif',
-        'application/pdf': 'pdf',
-        'application/msword': 'doc',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-        'application/vnd.ms-excel': 'xls',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx'
-    };
-    const maxFileSize = 10 * 1024 * 1024; // 10MB
-
-    function validateFile(file) {
-        if (!allowedTypes[file.type]) {
-            showNotification(`File type not allowed: ${file.name}`, 'error');
-            return false;
-        }
-        if (file.size > maxFileSize) {
-            showNotification(`File too large: ${file.name} (max 10MB)`, 'error');
-            return false;
-        }
-        return true;
-    }
-
-    function renderFilesList() {
-        filesList.innerHTML = attachedFiles.length
-            ? `<ul>${attachedFiles.map((f, i) => {
-                const file = f instanceof File ? f : { name: f.name || f, type: f.type || '' };
-                const isImage = file.type.startsWith('image/');
-                const preview = isImage 
-                    ? `<img src="${f instanceof File ? URL.createObjectURL(f) : f.path}" alt="${file.name}">`
-                    : `<i class="fas fa-file"></i>`;
-                return `
-                    <li>
-                        <div class="file-preview">${preview}</div>
-                        <div class="file-info">
-                            <span class="file-name">${file.name}</span>
-                            <span class="file-size">${formatFileSize(f instanceof File ? f.size : f.size || 0)}</span>
-                        </div>
-                        <button type="button" data-index="${i}" class="remove-asset-file-btn" title="Remove file">
-                            <i class="fas fa-times"></i>
+                    <div class="assets-table-container">
+                        <table class="assets-table">
+                            <thead>
+                                <tr>
+                                    <th class="select-column">
+                                        <input type="checkbox" class="bulk-select-checkbox" ${filteredAssets.length === 0 ? 'disabled' : ''}>
+                                    </th>
+                                    ${fields.map(field => `
+                                        <th class="sortable" data-field="${field.name}">
+                                            ${field.name}
+                                            <span class="sort-indicator">
+                                                ${sortField === field.name ? (sortAsc ? '↑' : '↓') : ''}
+                                            </span>
+                                        </th>
+                                    `).join('')}
+                                    <th class="actions-column">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${paginatedAssets.map(asset => {
+                                    const isLocked = lockedRows.has(asset.id);
+                                    return `
+                                        <tr class="asset-row ${isLocked ? 'locked' : ''}" data-asset-id="${asset.id}">
+                                            <td class="select-column">
+                                                <input type="checkbox" class="asset-checkbox" 
+                                                    ${isLocked ? 'disabled' : ''}
+                                                    ${selectedAssets.has(asset.id) ? 'checked' : ''}>
+                                            </td>
+                                            ${fields.map(field => {
+                                                const value = (asset.fields || {})[field.name] || '';
+                                                // Locked mode rendering
+                                                if (isLocked) {
+                                                    if (field.type === 'number') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value}</span></td>`;
+                                                    } else if (field.type === 'date') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${formatDate(value)}</span></td>`;
+                                                    } else if (field.type === 'time') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${formatTime(value)}</span></td>`;
+                                                    } else if (field.type === 'url') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value ? `<a href='${value}' target='_blank'>${value}</a>` : ''}</span></td>`;
+                                                    } else if (field.type === 'file') {
+                                                        if (value) {
+                                                            const fileName = value.split('/').pop();
+                                                            return `<td class="editable-cell"><span class="locked-value">${fileName} <a href='${value}' target='_blank'>View</a> <a href='${value}' download>Download</a></span></td>`;
+                                                        } else {
+                                                            return `<td class="editable-cell"><span class="locked-value">No file</span></td>`;
+                                                        }
+                                                    } else {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value}</span></td>`;
+                                                    }
+                                                } else {
+                                                    // Edit mode rendering
+                                                    if (field.type === 'number') {
+                                                        return `<td class="editable-cell"><input type="number" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter ${field.name}"></td>`;
+                                                    } else if (field.type === 'date') {
+                                                        return `<td class="editable-cell"><input type="date" value="${value}" class="asset-field-input" data-field="${field.name}"></td>`;
+                                                    } else if (field.type === 'time') {
+                                                        return `<td class="editable-cell"><input type="time" value="${value}" class="asset-field-input" data-field="${field.name}" step="1"></td>`;
+                                                    } else if (field.type === 'url') {
+                                                        return `<td class="editable-cell"><input type="url" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter URL"></td>`;
+                                                    } else if (field.type === 'file') {
+                                                        let fileHtml = '';
+                                                        if (value) {
+                                                            const fileName = value.split('/').pop();
+                                                            fileHtml += `<span class="locked-value">${fileName} <a href='${value}' target='_blank'>View</a> <a href='${value}' download>Download</a></span><br>`;
+                                                            fileHtml += `<button type='button' class='delete-file-btn' data-field='${field.name}'>Delete</button>`;
+                                                        }
+                                                        fileHtml += `<input type="file" class="asset-file-input" data-field="${field.name}">`;
+                                                        return `<td class="editable-cell">${fileHtml}</td>`;
+                                                    } else {
+                                                        return `<td class="editable-cell"><input type="text" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter ${field.name}"></td>`;
+                                                    }
+                                                }
+                                            }).join('')}
+                                            <td class="actions-column">
+                                                <button class="lock-row-btn" title="${isLocked ? 'Unlock' : 'Lock'} row">
+                                                    <i class="fas ${isLocked ? 'fa-lock' : 'fa-lock-open'}"></i>
+                                                </button>
+                                                <button class="save-row-btn" ${isLocked ? 'disabled' : ''} title="Save changes">
+                                                    <i class="fas fa-save"></i>
+                                                </button>
+                                                <button class="delete-row-btn" ${isLocked ? 'disabled' : ''} title="Delete">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="assets-pagination">
+                        <button class="prev-page-btn" ${currentPage === 1 ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-left"></i>
                         </button>
-                    </li>
-                `;
-            }).join('')}</ul>`
-            : '<div class="no-files">No files attached</div>';
-        
-        filesList.querySelectorAll('.remove-asset-file-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const idx = parseInt(btn.dataset.index);
-                const file = attachedFiles[idx];
-                if (file instanceof File) {
-                    URL.revokeObjectURL(file);
-                }
-                attachedFiles.splice(idx, 1);
-                renderFilesList();
+                        <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+                        <button class="next-page-btn" ${currentPage === totalPages ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            setupTableEventListeners();
+        }
+        function setupTableEventListeners() {
+            const searchInput = entriesContainer.querySelector('.assets-filter-input');
+            searchInput.addEventListener('input', debounce((e) => {
+                filterText = e.target.value;
+                currentPage = 1;
+                renderTable(getFilteredSortedAssets());
+            }, 300));
+            entriesContainer.querySelectorAll('.sortable').forEach(header => {
+                header.addEventListener('click', () => {
+                    const field = header.dataset.field;
+                    if (sortField === field) {
+                        sortAsc = !sortAsc;
+                    } else {
+                        sortField = field;
+                        sortAsc = true;
+                    }
+                    renderTable(getFilteredSortedAssets());
+                });
             });
-        });
-    }
-
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    // Drag and drop handling
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    });
-
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        const files = Array.from(e.dataTransfer.files);
-        handleFiles(files);
-    });
-
-    // Click to upload
-    dropZone.addEventListener('click', () => {
-        fileInput.click();
-    });
-
-    function handleFiles(files) {
-        const validFiles = files.filter(validateFile);
-        if (validFiles.length > 0) {
-            attachedFiles.push(...validFiles);
-            renderFilesList();
-        }
-    }
-
-    fileInput.addEventListener('change', (e) => {
-        handleFiles(Array.from(e.target.files));
-        fileInput.value = '';
-    });
-
-    renderFilesList();
-
-    // Modal close logic
-    function closeModal() {
-        // Clean up object URLs
-        attachedFiles.forEach(file => {
-            if (file instanceof File) {
-                URL.revokeObjectURL(file);
-            }
-        });
-        modal.remove();
-    }
-
-    modal.querySelector('.cancel-btn').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
-    // Form submit logic
-    modal.querySelector('#asset-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        // Validate form fields
-        const fieldInputs = Array.from(modal.querySelectorAll('#asset-fields-container input, #asset-fields-container select'));
-        const field_values = {};
-        let isValid = true;
-        
-        for (const input of fieldInputs) {
-            const value = input.value.trim();
-            if (!value && input.required) {
-                input.classList.add('error');
-                isValid = false;
-            } else {
-                input.classList.remove('error');
-                field_values[input.name] = value;
-            }
-        }
-
-        if (!isValid) {
-            showNotification('Please fill in all required fields', 'error');
-            return;
-        }
-
-        // Upload new files if any
-        let uploadedFiles = [];
-        for (const file of attachedFiles) {
-            if (file instanceof File) {
-                try {
-                    const result = await apiService.uploadFile(file);
-                    uploadedFiles.push({ name: file.name, path: result.filePath });
-                } catch (err) {
-                    showNotification('Error uploading file: ' + file.name, 'error');
+            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
+            bulkCheckbox.addEventListener('change', (e) => {
+                const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                    if (e.target.checked) {
+                        selectedAssets.add(cb.closest('tr').dataset.assetId);
+                    } else {
+                        selectedAssets.delete(cb.closest('tr').dataset.assetId);
+                    }
+                });
+                updateBulkActions();
+            });
+            entriesContainer.querySelectorAll('.asset-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const assetId = e.target.closest('tr').dataset.assetId;
+                    if (e.target.checked) {
+                        selectedAssets.add(assetId);
+                    } else {
+                        selectedAssets.delete(assetId);
+                    }
+                    updateBulkSelection();
+                    updateBulkActions();
+                });
+            });
+            entriesContainer.querySelectorAll('.lock-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    if (lockedRows.has(assetId)) {
+                        lockedRows.delete(assetId);
+                    } else {
+                        lockedRows.add(assetId);
+                    }
+                    renderTable(getFilteredSortedAssets());
+                });
+            });
+            entriesContainer.querySelectorAll('.save-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    const inputs = row.querySelectorAll('.asset-field-input');
+                    const fileInputs = row.querySelectorAll('.asset-file-input');
+                    const fieldValues = {};
+                    for (const input of inputs) {
+                        fieldValues[input.dataset.field] = input.value;
+                    }
+                    // Handle file uploads
+                    for (const fileInput of fileInputs) {
+                        const fieldName = fileInput.dataset.field;
+                        if (fileInput.files && fileInput.files[0]) {
+                            const result = await apiService.uploadFile(fileInput.files[0]);
+                            fieldValues[fieldName] = { path: result.path || result.filePath || result.filename || '', name: result.originalname || fileInput.files[0].name };
+                        }
+                    }
+                    // Handle file delete
+                    row.querySelectorAll('.delete-file-btn').forEach(btn => {
+                        const field = btn.dataset.field;
+                        if (btn.clicked) {
+                            fieldValues[field] = '';
+                        }
+                    });
+                    await handleAssetUpdate({ id: assetId }, type, fieldValues);
+                });
+            });
+            // File delete button
+            entriesContainer.querySelectorAll('.delete-file-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    btn.clicked = true;
+                    const cell = btn.closest('td');
+                    const input = cell.querySelector('.asset-file-input');
+                    if (input) input.value = '';
+                    btn.previousSibling && btn.previousSibling.remove(); // Remove file name display
+                    btn.remove();
+                });
+            });
+            entriesContainer.querySelectorAll('.delete-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    if (confirm('Are you sure you want to delete this asset?')) {
+                        await handleAssetDelete(assetId);
+                    }
+                });
+            });
+            entriesContainer.querySelector('.prev-page-btn').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable(getFilteredSortedAssets());
                 }
-            } else {
-                uploadedFiles.push(file); // Already uploaded
-            }
+            });
+            entriesContainer.querySelector('.next-page-btn').addEventListener('click', () => {
+                const totalPages = Math.ceil(getFilteredSortedAssets().length / pageSize);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
+            entriesContainer.querySelector('.export-assets-btn').addEventListener('click', async () => {
+                const filteredAssets = getFilteredSortedAssets();
+                await handleExport(type, filteredAssets);
+            });
+            entriesContainer.querySelector('.bulk-delete-btn').addEventListener('click', async () => {
+                if (selectedAssets.size > 0 && confirm(`Are you sure you want to delete ${selectedAssets.size} selected assets?`)) {
+                    for (const assetId of selectedAssets) {
+                        await handleAssetDelete(assetId);
+                    }
+                    selectedAssets.clear();
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
         }
-
-        try {
-            if (asset && asset.id) {
-                await apiService.updateAsset({ id: asset.id, type_id: type.id, field_values, files: uploadedFiles });
-                showNotification('Asset updated successfully', 'success');
-            } else {
-                await apiService.addAsset({ type_id: type.id, field_values, files: uploadedFiles });
-                showNotification('Asset added successfully', 'success');
-            }
-            closeModal();
-            await renderAssetTypeSpreadsheetPage(type.id);
-        } catch (error) {
-            showNotification('Error saving asset', 'error');
+        function updateBulkSelection() {
+            const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
+            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
+            const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+            bulkCheckbox.checked = checkedCount === checkboxes.length;
+            bulkCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
         }
-    });
-}
-
-// Suppress specific harmless async listener error in browser console
-window.addEventListener('unhandledrejection', function(event) {
-    if (
-        event.reason &&
-        typeof event.reason.message === 'string' &&
-        event.reason.message.includes('A listener indicated an asynchronous response')
-    ) {
-        event.preventDefault();
+        function updateBulkActions() {
+            const exportBtn = entriesContainer.querySelector('.export-assets-btn');
+            const deleteBtn = entriesContainer.querySelector('.bulk-delete-btn');
+            const filteredAssets = getFilteredSortedAssets();
+            exportBtn.disabled = filteredAssets.length === 0;
+            deleteBtn.disabled = selectedAssets.size === 0;
+        }
+        renderTable(getFilteredSortedAssets());
+    } catch (error) {
+        console.error('Error rendering assets:', error);
+        showNotification('Error loading assets', 'error');
     }
-});
+};
+// ... existing code ...
+
+// --- PATCHED renderAssetTypeSpreadsheetPage for professional file field UX and formatting ---
+const originalRenderAssetTypeSpreadsheetPage3 = renderAssetTypeSpreadsheetPage;
+renderAssetTypeSpreadsheetPage = async function(typeId) {
+    try {
+        entriesContainer.innerHTML = '<div class="assets-spinner"></div>';
+        const assetTypes = await apiService.getAssetTypes();
+        const type = assetTypes.find(t => t.id === typeId);
+        const assets = await apiService.getAssets(typeId);
+        let fields = type.fields;
+        if (typeof fields === 'string') {
+            try { fields = JSON.parse(fields); } catch (e) { fields = []; }
+        }
+        let sortField = type.default_sort_field || fields[0]?.name || '';
+        let sortAsc = type.default_sort_asc ?? true;
+        let filterText = '';
+        let selectedAssets = new Set();
+        let currentPage = 1;
+        let pageSize = 20;
+        let lockedRows = new Set(assets.map(a => a.id));
+        function getFilteredSortedAssets() {
+            let filtered = assets;
+            if (filterText) {
+                filtered = filtered.filter(asset => {
+                    const values = asset.fields || {};
+                    return fields.some(f => (values[f.name] || '').toLowerCase().includes(filterText.toLowerCase()));
+                });
+            }
+            if (sortField) {
+                filtered = [...filtered].sort((a, b) => {
+                    const va = (a.fields || {})[sortField] || '';
+                    const vb = (b.fields || {})[sortField] || '';
+                    if (va < vb) return sortAsc ? -1 : 1;
+                    if (va > vb) return sortAsc ? 1 : -1;
+                    return 0;
+                });
+            }
+            return filtered;
+        }
+        function formatDate(val) {
+            if (!val) return '';
+            const d = new Date(val);
+            if (isNaN(d)) return val;
+            return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+        function formatTime(val) {
+            if (!val) return '';
+            // Expecting HH:mm or HH:mm:ss
+            return val.length <= 5 ? val : val.slice(0, 8);
+        }
+        function getFileUrl(value) {
+            if (!value) return '';
+            // If value is an object, use .path
+            if (typeof value === 'object' && value.path) value = value.path;
+            if (typeof value !== 'string') return '';
+            if (/^https?:\/\//.test(value) || value.startsWith('/uploads/')) return value;
+            return '/uploads/' + value.split('\\').pop().split('/').pop();
+        }
+        function renderTable(filteredAssets) {
+            const startIndex = (currentPage - 1) * pageSize;
+            const paginatedAssets = filteredAssets.slice(startIndex, startIndex + pageSize);
+            const totalPages = Math.ceil(filteredAssets.length / pageSize);
+            entriesContainer.innerHTML = `
+                <div class="assets-spreadsheet-container">
+                    <div class="assets-toolbar">
+                        <div class="assets-search">
+                            <input type="text" class="assets-filter-input" placeholder="Search assets..." value="${filterText}">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <div class="assets-actions">
+                            <button class="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
+                            <button class="export-assets-btn" ${filteredAssets.length === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <button class="bulk-delete-btn" ${selectedAssets.size === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-trash"></i> Delete Selected
+                            </button>
+                        </div>
+                    </div>
+                    <div class="assets-table-container">
+                        <table class="assets-table">
+                            <thead>
+                                <tr>
+                                    <th class="select-column">
+                                        <input type="checkbox" class="bulk-select-checkbox" ${filteredAssets.length === 0 ? 'disabled' : ''}>
+                                    </th>
+                                    ${fields.map(field => `
+                                        <th class="sortable" data-field="${field.name}">
+                                            ${field.name}
+                                            <span class="sort-indicator">
+                                                ${sortField === field.name ? (sortAsc ? '↑' : '↓') : ''}
+                                            </span>
+                                        </th>
+                                    `).join('')}
+                                    <th class="actions-column">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${paginatedAssets.map(asset => {
+                                    const isLocked = lockedRows.has(asset.id);
+                                    return `
+                                        <tr class="asset-row ${isLocked ? 'locked' : ''}" data-asset-id="${asset.id}">
+                                            <td class="select-column">
+                                                <input type="checkbox" class="asset-checkbox" 
+                                                    ${isLocked ? 'disabled' : ''}
+                                                    ${selectedAssets.has(asset.id) ? 'checked' : ''}>
+                                            </td>
+                                            ${fields.map(field => {
+                                                const value = (asset.fields || {})[field.name] || '';
+                                                // Locked mode rendering
+                                                if (isLocked) {
+                                                    if (field.type === 'number') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value}</span></td>`;
+                                                    } else if (field.type === 'date') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${formatDate(value)}</span></td>`;
+                                                    } else if (field.type === 'time') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${formatTime(value)}</span></td>`;
+                                                    } else if (field.type === 'url') {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value ? `<a href='${value}' target='_blank' rel='noopener noreferrer'><i class='fas fa-link'></i> ${value}</a>` : ''}</span></td>`;
+                                                    } else if (field.type === 'file') {
+                                                        if (value) {
+                                                            const fileUrl = getFileUrl(value);
+                                                            const fileName = fileUrl.split('/').pop();
+                                                            return `<td class="editable-cell"><span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${fileUrl}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${fileUrl}' download title='Download'><i class='fas fa-download'></i></a></span></td>`;
+                                                        } else {
+                                                            return `<td class="editable-cell"><span class="locked-value text-muted"><i class='fas fa-file-alt'></i> No file attached</span></td>`;
+                                                        }
+                                                    } else {
+                                                        return `<td class="editable-cell"><span class="locked-value">${value}</span></td>`;
+                                                    }
+                                                } else {
+                                                    // Edit mode rendering
+                                                    if (field.type === 'number') {
+                                                        return `<td class="editable-cell"><input type="number" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter ${field.name}"></td>`;
+                                                    } else if (field.type === 'date') {
+                                                        return `<td class="editable-cell"><input type="date" value="${value}" class="asset-field-input" data-field="${field.name}"></td>`;
+                                                    } else if (field.type === 'time') {
+                                                        return `<td class="editable-cell"><input type="time" value="${value}" class="asset-field-input" data-field="${field.name}" step="1"></td>`;
+                                                    } else if (field.type === 'url') {
+                                                        return `<td class="editable-cell"><input type="url" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter URL"></td>`;
+                                                    } else if (field.type === 'file') {
+                                                        let fileHtml = '';
+                                                        if (value) {
+                                                            const fileUrl = getFileUrl(value);
+                                                            const fileName = fileUrl.split('/').pop();
+                                                            fileHtml += `<span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${fileUrl}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${fileUrl}' download title='Download'><i class='fas fa-download'></i></a></span><br>`;
+                                                            fileHtml += `<button type='button' class='delete-file-btn' data-field='${field.name}' title='Remove file'><i class='fas fa-trash'></i></button>`;
+                                                        }
+                                                        fileHtml += `<input type="file" class="asset-file-input" data-field="${field.name}">`;
+                                                        fileHtml += `<span class='file-upload-progress' style='display:none;'></span>`;
+                                                        return `<td class="editable-cell">${fileHtml}</td>`;
+                                                    } else {
+                                                        return `<td class="editable-cell"><input type="text" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter ${field.name}"></td>`;
+                                                    }
+                                                }
+                                            }).join('')}
+                                            <td class="actions-column">
+                                                <button class="lock-row-btn" title="${isLocked ? 'Unlock' : 'Lock'} row">
+                                                    <i class="fas ${isLocked ? 'fa-lock' : 'fa-lock-open'}"></i>
+                                                </button>
+                                                <button class="save-row-btn" ${isLocked ? 'disabled' : ''} title="Save changes">
+                                                    <i class="fas fa-save"></i>
+                                                </button>
+                                                <button class="delete-row-btn" ${isLocked ? 'disabled' : ''} title="Delete">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="assets-pagination">
+                        <button class="prev-page-btn" ${currentPage === 1 ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+                        <button class="next-page-btn" ${currentPage === totalPages ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            setupTableEventListeners();
+        }
+        function setupTableEventListeners() {
+            const searchInput = entriesContainer.querySelector('.assets-filter-input');
+            searchInput.addEventListener('input', debounce((e) => {
+                filterText = e.target.value;
+                currentPage = 1;
+                renderTable(getFilteredSortedAssets());
+            }, 300));
+            entriesContainer.querySelectorAll('.sortable').forEach(header => {
+                header.addEventListener('click', () => {
+                    const field = header.dataset.field;
+                    if (sortField === field) {
+                        sortAsc = !sortAsc;
+                    } else {
+                        sortField = field;
+                        sortAsc = true;
+                    }
+                    renderTable(getFilteredSortedAssets());
+                });
+            });
+            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
+            bulkCheckbox.addEventListener('change', (e) => {
+                const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                    if (e.target.checked) {
+                        selectedAssets.add(cb.closest('tr').dataset.assetId);
+                    } else {
+                        selectedAssets.delete(cb.closest('tr').dataset.assetId);
+                    }
+                });
+                updateBulkActions();
+            });
+            entriesContainer.querySelectorAll('.asset-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const assetId = e.target.closest('tr').dataset.assetId;
+                    if (e.target.checked) {
+                        selectedAssets.add(assetId);
+                    } else {
+                        selectedAssets.delete(assetId);
+                    }
+                    updateBulkSelection();
+                    updateBulkActions();
+                });
+            });
+            entriesContainer.querySelectorAll('.lock-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    if (lockedRows.has(assetId)) {
+                        lockedRows.delete(assetId);
+                    } else {
+                        lockedRows.add(assetId);
+                    }
+                    renderTable(getFilteredSortedAssets());
+                });
+            });
+            entriesContainer.querySelectorAll('.save-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    const inputs = row.querySelectorAll('.asset-field-input');
+                    const fileInputs = row.querySelectorAll('.asset-file-input');
+                    const fieldValues = {};
+                    let uploading = false;
+                    for (const input of inputs) {
+                        fieldValues[input.dataset.field] = input.value;
+                    }
+                    // Handle file uploads
+                    for (const fileInput of fileInputs) {
+                        const fieldName = fileInput.dataset.field;
+                        const progress = fileInput.parentElement.querySelector('.file-upload-progress');
+                        if (fileInput.files && fileInput.files[0]) {
+                            uploading = true;
+                            if (progress) { progress.style.display = 'inline'; progress.textContent = 'Uploading...'; }
+                            try {
+                                const result = await apiService.uploadFile(fileInput.files[0]);
+                                fieldValues[fieldName] = { path: result.path || result.filePath || result.filename || '', name: result.originalname || fileInput.files[0].name };
+                                if (progress) progress.textContent = 'Uploaded!';
+                            } catch (err) {
+                                if (progress) progress.textContent = 'Upload failed';
+                                showNotification('File upload failed', 'error');
+                                return;
+                            }
+                        }
+                    }
+                    // Handle file delete
+                    row.querySelectorAll('.delete-file-btn').forEach(btn => {
+                        const field = btn.dataset.field;
+                        if (btn.clicked) {
+                            fieldValues[field] = '';
+                        }
+                    });
+                    // Disable save while uploading
+                    if (uploading) btn.disabled = true;
+                    await handleAssetUpdate({ id: assetId }, type, fieldValues);
+                });
+            });
+            // File delete button
+            entriesContainer.querySelectorAll('.delete-file-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    btn.clicked = true;
+                    const cell = btn.closest('td');
+                    const input = cell.querySelector('.asset-file-input');
+                    if (input) input.value = '';
+                    btn.previousSibling && btn.previousSibling.remove();
+                    btn.remove();
+                });
+            });
+            entriesContainer.querySelectorAll('.delete-row-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const row = e.target.closest('tr');
+                    const assetId = row.dataset.assetId;
+                    if (confirm('Are you sure you want to delete this asset?')) {
+                        await handleAssetDelete(assetId);
+                    }
+                });
+            });
+            entriesContainer.querySelector('.prev-page-btn').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
+            entriesContainer.querySelector('.next-page-btn').addEventListener('click', () => {
+                const totalPages = Math.ceil(getFilteredSortedAssets().length / pageSize);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
+            entriesContainer.querySelector('.export-assets-btn').addEventListener('click', async () => {
+                const filteredAssets = getFilteredSortedAssets();
+                await handleExport(type, filteredAssets);
+            });
+            entriesContainer.querySelector('.bulk-delete-btn').addEventListener('click', async () => {
+                if (selectedAssets.size > 0 && confirm(`Are you sure you want to delete ${selectedAssets.size} selected assets?`)) {
+                    for (const assetId of selectedAssets) {
+                        await handleAssetDelete(assetId);
+                    }
+                    selectedAssets.clear();
+                    renderTable(getFilteredSortedAssets());
+                }
+            });
+        }
+        function updateBulkSelection() {
+            const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
+            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
+            const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+            bulkCheckbox.checked = checkedCount === checkboxes.length;
+            bulkCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+        }
+        function updateBulkActions() {
+            const exportBtn = entriesContainer.querySelector('.export-assets-btn');
+            const deleteBtn = entriesContainer.querySelector('.bulk-delete-btn');
+            const filteredAssets = getFilteredSortedAssets();
+            exportBtn.disabled = filteredAssets.length === 0;
+            deleteBtn.disabled = selectedAssets.size === 0;
+        }
+        renderTable(getFilteredSortedAssets());
+    } catch (error) {
+        console.error('Error rendering assets:', error);
+        showNotification('Error loading assets', 'error');
+    }
+};
+// ... existing code ...
