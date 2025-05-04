@@ -1,0 +1,171 @@
+/* AssetTable.css - Styles for the AssetTable component */
+
+.table-search-container {
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.table-search {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.export-csv {
+    padding: 0.5rem 1rem;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.export-csv:hover {
+    background-color: #45a049;
+}
+
+/* Modal styles */
+.file-upload-modal,
+.location-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+}
+
+.modal-content {
+    position: relative;
+    background-color: white;
+    margin: 5% auto;
+    padding: 20px;
+    width: 80%;
+    max-width: 600px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #666;
+}
+
+.close-button:hover {
+    color: #333;
+}
+
+/* File upload styles */
+.file-upload-container {
+    margin: 1rem 0;
+}
+
+.file-upload-button {
+    padding: 0.5rem 1rem;
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.file-upload-button:hover {
+    background-color: #1976D2;
+}
+
+/* Location picker styles */
+.location-picker-button {
+    padding: 0.5rem 1rem;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.location-picker-button:hover {
+    background-color: #45a049;
+}
+
+.search-container {
+    margin-bottom: 1rem;
+}
+
+.location-search {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+#location-map {
+    height: 400px;
+    width: 100%;
+    border-radius: 4px;
+}
+
+/* Tabulator custom styles */
+.tabulator {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.tabulator .tabulator-header {
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+}
+
+.tabulator .tabulator-header .tabulator-col {
+    background-color: #f5f5f5;
+    border-right: 1px solid #ddd;
+}
+
+.tabulator .tabulator-row {
+    border-bottom: 1px solid #ddd;
+}
+
+.tabulator .tabulator-row.tabulator-row-even {
+    background-color: #f9f9f9;
+}
+
+.tabulator .tabulator-row.tabulator-row-odd {
+    background-color: white;
+}
+
+.tabulator .tabulator-row.tabulator-selected {
+    background-color: #e3f2fd;
+}
+
+.tabulator .tabulator-footer {
+    background-color: #f5f5f5;
+    border-top: 1px solid #ddd;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95%;
+        margin: 10% auto;
+    }
+
+    #location-map {
+        height: 300px;
+    }
+} 

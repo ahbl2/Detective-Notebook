@@ -849,6 +849,16 @@ const apiService = {
             console.error('Error opening file:', error);
             showNotification('Error opening file', 'error');
         }
+    },
+
+    async getAssetType(typeId) {
+        const response = await fetch(`${API_BASE_URL}/asset-types/${typeId}`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        if (!response.ok) throw new Error('Failed to get asset type');
+        return response.json();
     }
 };
 
@@ -2645,326 +2655,81 @@ async function renderAssetTypesCardsPage() {
 // Render the Asset Type spreadsheet page
 async function renderAssetTypeSpreadsheetPage(typeId) {
     try {
-        // Show loading spinner
-        entriesContainer.innerHTML = '<div class="assets-spinner"></div>';
-        
-        // Fetch data
-        const assetTypes = await apiService.getAssetTypes();
-        const type = assetTypes.find(t => t.id === typeId);
+        const type = await apiService.getAssetType(typeId);
         const assets = await apiService.getAssets(typeId);
         
-        // Parse fields
-        let fields = type.fields;
-        if (typeof fields === 'string') {
-            try {
-                fields = JSON.parse(fields);
-            } catch (e) {
-                fields = [];
-            }
-        }
-
-        // Initialize state
-        let sortField = type.default_sort_field || fields[0]?.name || '';
-        let sortAsc = type.default_sort_asc ?? true;
-        let filterText = '';
-        let selectedAssets = new Set();
-        let currentPage = 1;
-        let pageSize = 20;
-        let lockedRows = new Set(); // Track locked rows
-
-        // Helper to sort and filter assets
-        function getFilteredSortedAssets() {
-            let filtered = assets;
-            if (filterText) {
-                filtered = filtered.filter(asset => {
-                    const values = asset.fields || {};
-                    return fields.some(f => (values[f.name] || '').toLowerCase().includes(filterText.toLowerCase()));
-                });
-            }
-            if (sortField) {
-                filtered = [...filtered].sort((a, b) => {
-                    const va = (a.fields || {})[sortField] || '';
-                    const vb = (b.fields || {})[sortField] || '';
-                    if (va < vb) return sortAsc ? -1 : 1;
-                    if (va > vb) return sortAsc ? 1 : -1;
-                    return 0;
-                });
-            }
-            return filtered;
-        }
-
-        // Helper to render table
-        function renderTable(filteredAssets) {
-            const startIndex = (currentPage - 1) * pageSize;
-            const paginatedAssets = filteredAssets.slice(startIndex, startIndex + pageSize);
-            const totalPages = Math.ceil(filteredAssets.length / pageSize);
-
-            entriesContainer.innerHTML = `
-                <div class="assets-spreadsheet-container">
-                    <div class="assets-toolbar">
-                        <div class="assets-search">
-                            <input type="text" class="assets-filter-input" placeholder="Search assets..." value="${filterText}">
-                            <i class="fas fa-search"></i>
-                        </div>
-                        <div class="assets-actions">
-                            <button class="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
-                            <button class="export-assets-btn" ${filteredAssets.length === 0 ? 'disabled' : ''}>
-                                <i class="fas fa-download"></i> Export
-                            </button>
-                            <button class="bulk-delete-btn" ${selectedAssets.size === 0 ? 'disabled' : ''}>
-                                <i class="fas fa-trash"></i> Delete Selected
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="assets-table-container">
-                        <table class="assets-table">
-                            <thead>
-                                <tr>
-                                    <th class="select-column">
-                                        <input type="checkbox" class="bulk-select-checkbox" ${filteredAssets.length === 0 ? 'disabled' : ''}>
-                                    </th>
-                                    ${fields.map(field => `
-                                        <th class="sortable" data-field="${field.name}">
-                                            ${field.name}
-                                            <span class="sort-indicator">
-                                                ${sortField === field.name ? (sortAsc ? '↑' : '↓') : ''}
-                                            </span>
-                                        </th>
-                                    `).join('')}
-                                    <th class="actions-column">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${paginatedAssets.map(asset => {
-                                    const isLocked = lockedRows.has(asset.id);
-                                    return `
-                                        <tr class="asset-row ${isLocked ? 'locked' : ''}" data-asset-id="${asset.id}">
-                                            <td class="select-column">
-                                                <input type="checkbox" class="asset-checkbox" 
-                                                    ${isLocked ? 'disabled' : ''}
-                                                    ${selectedAssets.has(asset.id) ? 'checked' : ''}>
-                                            </td>
-                                            ${fields.map(field => {
-                                                const value = (asset.fields || {})[field.name] || '';
-                                                // Locked mode rendering
-                                                if (isLocked) {
-                                                    if (field.type === 'file') {
-                                                        if (value && typeof value === 'object' && value.path) {
-                                                            const fileName = value.name || value.path.split('/').pop();
-                                                            return `<td class="editable-cell"><span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value.path}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value.path}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span></td>`;
-                                                        } else if (typeof value === 'string' && value) {
-                                                            const fileName = value.split('/').pop();
-                                                            return `<td class="editable-cell"><span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span></td>`;
-                                                        } else {
-                                                            return `<td class="editable-cell"><span class="locked-value text-muted"><i class='fas fa-file-alt'></i> No file attached</span></td>`;
-                                                        }
-                                                    } else {
-                                                        return `<td class="editable-cell"><span class="locked-value">${value}</span></td>`;
-                                                    }
-                                                } else {
-                                                    // Edit mode rendering
-                                                    if (field.type === 'file') {
-                                                        let fileHtml = '';
-                                                        if (value && typeof value === 'object' && value.path) {
-                                                            const fileName = value.name || value.path.split('/').pop();
-                                                            fileHtml += `<span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value.path}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value.path}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span><br>`;
-                                                            fileHtml += `<button type='button' class='delete-file-btn' data-field='${field.name}' title='Remove file'><i class='fas fa-trash'></i></button>`;
-                                                        } else if (typeof value === 'string' && value) {
-                                                            const fileName = value.split('/').pop();
-                                                            fileHtml += `<span class="locked-value"><i class='fas fa-file-alt'></i> ${fileName} <a href='${value}' target='_blank' title='View' rel='noopener noreferrer'><i class='fas fa-eye'></i></a> <a href='${value}' download='${fileName}' title='Download'><i class='fas fa-download'></i></a></span><br>`;
-                                                            fileHtml += `<button type='button' class='delete-file-btn' data-field='${field.name}' title='Remove file'><i class='fas fa-trash'></i></button>`;
-                                                        }
-                                                        fileHtml += `<input type="file" class="asset-file-input" data-field="${field.name}">`;
-                                                        fileHtml += `<span class='file-upload-progress' style='display:none;'></span>`;
-                                                        return `<td class="editable-cell">${fileHtml}</td>`;
-                                                    } else {
-                                                        return `<td class="editable-cell"><input type="text" value="${value}" class="asset-field-input" data-field="${field.name}" placeholder="Enter ${field.name}"></td>`;
-                                                    }
-                                                }
-                                            }).join('')}
-                                            <td class="actions-column">
-                                                <button class="lock-row-btn" title="${isLocked ? 'Unlock' : 'Lock'} row">
-                                                    <i class="fas ${isLocked ? 'fa-lock' : 'fa-lock-open'}"></i>
-                                                </button>
-                                                <button class="save-row-btn" ${isLocked ? 'disabled' : ''} title="Save changes">
-                                                    <i class="fas fa-save"></i>
-                                                </button>
-                                                <button class="delete-row-btn" ${isLocked ? 'disabled' : ''} title="Delete">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    `;
-                                }).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="assets-pagination">
-                        <button class="prev-page-btn" ${currentPage === 1 ? 'disabled' : ''}>
-                            <i class="fas fa-chevron-left"></i>
-                        </button>
-                        <span class="page-info">Page ${currentPage} of ${totalPages}</span>
-                        <button class="next-page-btn" ${currentPage === totalPages ? 'disabled' : ''}>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
-                    </div>
+        // Create container for the table
+        entriesContainer.innerHTML = `
+            <div class="asset-spreadsheet-page">
+                <div class="asset-spreadsheet-header">
+                    <h2><i class="fas fa-table"></i> ${type.name}</h2>
+                    <button class="add-asset-btn"><i class="fas fa-plus"></i> Add Asset</button>
                 </div>
-            `;
+                <div id="asset-table"></div>
+            </div>
+        `;
 
-            // Add event listeners
-            setupTableEventListeners();
+        // Add event listener for Add Asset button
+        const addButton = entriesContainer.querySelector('.add-asset-btn');
+        if (addButton) {
+            addButton.addEventListener('click', () => {
+                openAssetModal(type, async (fieldValues) => {
+                    try {
+                        await apiService.addAsset({ type_id: type.id, fields: fieldValues });
+                        await renderAssetTypeSpreadsheetPage(type.id);
+                        showNotification('Asset added successfully', 'success');
+                    } catch (error) {
+                        console.error('Error adding asset:', error);
+                        showNotification('Error adding asset', 'error');
+                    }
+                });
+            });
         }
 
-        // Helper to setup event listeners
-        function setupTableEventListeners() {
-            // Search input
-            const searchInput = entriesContainer.querySelector('.assets-filter-input');
-            searchInput.addEventListener('input', debounce((e) => {
-                filterText = e.target.value;
-                currentPage = 1;
-                renderTable(getFilteredSortedAssets());
-            }, 300));
+        // Convert type fields to AssetTable format
+        const fields = type.fields.map(field => ({
+            name: field.name,
+            label: field.name,
+            type: field.type,
+            options: field.options || []
+        }));
 
-            // Sort headers
-            entriesContainer.querySelectorAll('.sortable').forEach(header => {
-                header.addEventListener('click', () => {
-                    const field = header.dataset.field;
-                    if (sortField === field) {
-                        sortAsc = !sortAsc;
-                    } else {
-                        sortField = field;
-                        sortAsc = true;
-                    }
-                    renderTable(getFilteredSortedAssets());
-                });
-            });
+        // Convert assets to AssetTable format
+        const data = assets.map(asset => ({
+            id: asset.id,
+            ...asset.field_values,
+            created_at: asset.created_at,
+            updated_at: asset.updated_at
+        }));
 
-            // Bulk selection
-            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
-            bulkCheckbox.addEventListener('change', (e) => {
-                const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
-                checkboxes.forEach(cb => {
-                    cb.checked = e.target.checked;
-                    if (e.target.checked) {
-                        selectedAssets.add(cb.closest('tr').dataset.assetId);
-                    } else {
-                        selectedAssets.delete(cb.closest('tr').dataset.assetId);
-                    }
-                });
-                updateBulkActions();
-            });
-
-            // Individual selection
-            entriesContainer.querySelectorAll('.asset-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', (e) => {
-                    const assetId = e.target.closest('tr').dataset.assetId;
-                    if (e.target.checked) {
-                        selectedAssets.add(assetId);
-                    } else {
-                        selectedAssets.delete(assetId);
-                    }
-                    updateBulkSelection();
-                    updateBulkActions();
-                });
-            });
-
-            // Lock/unlock rows
-            entriesContainer.querySelectorAll('.lock-row-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const row = e.target.closest('tr');
-                    const assetId = row.dataset.assetId;
-                    if (lockedRows.has(assetId)) {
-                        lockedRows.delete(assetId);
-                    } else {
-                        lockedRows.add(assetId);
-                    }
-                    renderTable(getFilteredSortedAssets());
-                });
-            });
-
-            // Save row
-            entriesContainer.querySelectorAll('.save-row-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const row = e.target.closest('tr');
-                    const assetId = row.dataset.assetId;
-                    const inputs = row.querySelectorAll('.asset-field-input');
-                    const fieldValues = {};
-                    inputs.forEach(input => {
-                        fieldValues[input.dataset.field] = input.value;
-                    });
-                    await handleAssetUpdate({ id: assetId }, type, fieldValues);
-                });
-            });
-
-            // Delete row
-            entriesContainer.querySelectorAll('.delete-row-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const row = e.target.closest('tr');
-                    const assetId = row.dataset.assetId;
-                    if (confirm('Are you sure you want to delete this asset?')) {
-                        await handleAssetDelete(assetId);
-                    }
-                });
-            });
-
-            // Pagination
-            entriesContainer.querySelector('.prev-page-btn').addEventListener('click', () => {
-                if (currentPage > 1) {
-                    currentPage--;
-                    renderTable(getFilteredSortedAssets());
+        // Initialize the table
+        const table = new AssetTable({
+            container: '#asset-table',
+            fields: fields,
+            data: data,
+            assetTypeId: typeId,
+            onSave: async (rowData) => {
+                const { id, ...field_values } = rowData;
+                await handleAssetUpdate({ id }, type, field_values);
+            },
+            onDelete: async (rowData) => {
+                if (confirm('Are you sure you want to delete this asset?')) {
+                    await handleAssetDelete(rowData.id);
                 }
-            });
-
-            entriesContainer.querySelector('.next-page-btn').addEventListener('click', () => {
-                const totalPages = Math.ceil(getFilteredSortedAssets().length / pageSize);
-                if (currentPage < totalPages) {
-                    currentPage++;
-                    renderTable(getFilteredSortedAssets());
+            },
+            onFileUpload: async (fileData) => {
+                try {
+                    await apiService.uploadFile(fileData);
+                    showNotification('File uploaded successfully', 'success');
+                } catch (error) {
+                    console.error('Error uploading file:', error);
+                    showNotification('Error uploading file', 'error');
                 }
-            });
+            }
+        });
 
-            // Export
-            entriesContainer.querySelector('.export-assets-btn').addEventListener('click', async () => {
-                const filteredAssets = getFilteredSortedAssets();
-                await handleExport(type, filteredAssets);
-            });
-
-            // Bulk delete
-            entriesContainer.querySelector('.bulk-delete-btn').addEventListener('click', async () => {
-                if (selectedAssets.size > 0 && confirm(`Are you sure you want to delete ${selectedAssets.size} selected assets?`)) {
-                    for (const assetId of selectedAssets) {
-                        await handleAssetDelete(assetId);
-                    }
-                    selectedAssets.clear();
-                    renderTable(getFilteredSortedAssets());
-                }
-            });
-        }
-
-        // Helper to update bulk selection checkbox
-        function updateBulkSelection() {
-            const checkboxes = entriesContainer.querySelectorAll('.asset-checkbox:not(:disabled)');
-            const bulkCheckbox = entriesContainer.querySelector('.bulk-select-checkbox');
-            const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
-            bulkCheckbox.checked = checkedCount === checkboxes.length;
-            bulkCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
-        }
-
-        // Helper to update bulk action buttons
-        function updateBulkActions() {
-            const exportBtn = entriesContainer.querySelector('.export-assets-btn');
-            const deleteBtn = entriesContainer.querySelector('.bulk-delete-btn');
-            const filteredAssets = getFilteredSortedAssets();
-            exportBtn.disabled = filteredAssets.length === 0;
-            deleteBtn.disabled = selectedAssets.size === 0;
-        }
-
-        // Initial render
-        renderTable(getFilteredSortedAssets());
     } catch (error) {
-        console.error('Error rendering assets:', error);
+        console.error('Error rendering asset spreadsheet:', error);
         showNotification('Error loading assets', 'error');
     }
 }
@@ -3334,6 +3099,122 @@ renderAssetTypeSpreadsheetPage = async function(typeId) {
                 currentPage = 1;
                 renderTable(getFilteredSortedAssets());
             }, 300));
+
+            // Add event listener for the "Add Asset" button
+            const addAssetBtn = entriesContainer.querySelector('.add-asset-btn');
+            if (addAssetBtn) {
+                addAssetBtn.addEventListener('click', async () => {
+                    const assetModal = document.getElementById('asset-modal');
+                    if (assetModal) {
+                        // Get the current asset type
+                        const assetType = await apiService.getAssetType(selectedAssetTypeId);
+                        if (assetType) {
+                            // Populate the fields container
+                            const fieldsContainer = document.getElementById('asset-fields-container');
+                            fieldsContainer.innerHTML = '';
+                            
+                            // Add fields based on asset type
+                            assetType.fields.forEach(field => {
+                                const fieldDiv = document.createElement('div');
+                                fieldDiv.className = 'form-group';
+                                
+                                const label = document.createElement('label');
+                                label.textContent = field.name;
+                                label.htmlFor = `asset-${field.name}`;
+                                
+                                let input;
+                                switch (field.type) {
+                                    case 'text':
+                                        input = document.createElement('input');
+                                        input.type = 'text';
+                                        break;
+                                    case 'number':
+                                        input = document.createElement('input');
+                                        input.type = 'number';
+                                        break;
+                                    case 'date':
+                                        input = document.createElement('input');
+                                        input.type = 'date';
+                                        break;
+                                    case 'time':
+                                        input = document.createElement('input');
+                                        input.type = 'time';
+                                        break;
+                                    case 'url':
+                                        input = document.createElement('input');
+                                        input.type = 'url';
+                                        break;
+                                    case 'file':
+                                        input = document.createElement('input');
+                                        input.type = 'file';
+                                        break;
+                                    default:
+                                        input = document.createElement('input');
+                                        input.type = 'text';
+                                }
+                                
+                                input.id = `asset-${field.name}`;
+                                input.name = field.name;
+                                input.className = 'asset-field-input';
+                                
+                                fieldDiv.appendChild(label);
+                                fieldDiv.appendChild(input);
+                                fieldsContainer.appendChild(fieldDiv);
+                            });
+                            
+                            // Show the modal
+                            assetModal.style.display = 'block';
+                            
+                            // Add event listeners for the modal buttons
+                            const cancelBtn = assetModal.querySelector('.cancel-btn');
+                            const saveBtn = assetModal.querySelector('.save-btn');
+                            const assetForm = document.getElementById('asset-form');
+                            
+                            if (cancelBtn) {
+                                cancelBtn.onclick = () => {
+                                    assetModal.style.display = 'none';
+                                    assetForm.reset();
+                                };
+                            }
+                            
+                            if (saveBtn) {
+                                saveBtn.onclick = async (e) => {
+                                    e.preventDefault();
+                                    
+                                    // Collect form data
+                                    const formData = new FormData(assetForm);
+                                    const fields = {};
+                                    
+                                    assetType.fields.forEach(field => {
+                                        const value = formData.get(field.name);
+                                        if (value) {
+                                            fields[field.name] = value;
+                                        }
+                                    });
+                                    
+                                    // Create the asset
+                                    const asset = {
+                                        type_id: selectedAssetTypeId,
+                                        fields: fields
+                                    };
+                                    
+                                    try {
+                                        await apiService.addAsset(asset);
+                                        assetModal.style.display = 'none';
+                                        assetForm.reset();
+                                        // Refresh the table to show the new asset
+                                        await renderAssetTypeSpreadsheetPage(selectedAssetTypeId);
+                                    } catch (error) {
+                                        console.error('Error saving asset:', error);
+                                        showNotification('Failed to save asset', 'error');
+                                    }
+                                };
+                            }
+                        }
+                    }
+                });
+            }
+
             entriesContainer.querySelectorAll('.sortable').forEach(header => {
                 header.addEventListener('click', () => {
                     const field = header.dataset.field;
@@ -3672,6 +3553,122 @@ renderAssetTypeSpreadsheetPage = async function(typeId) {
                 currentPage = 1;
                 renderTable(getFilteredSortedAssets());
             }, 300));
+
+            // Add event listener for the "Add Asset" button
+            const addAssetBtn = entriesContainer.querySelector('.add-asset-btn');
+            if (addAssetBtn) {
+                addAssetBtn.addEventListener('click', async () => {
+                    const assetModal = document.getElementById('asset-modal');
+                    if (assetModal) {
+                        // Get the current asset type
+                        const assetType = await apiService.getAssetType(selectedAssetTypeId);
+                        if (assetType) {
+                            // Populate the fields container
+                            const fieldsContainer = document.getElementById('asset-fields-container');
+                            fieldsContainer.innerHTML = '';
+                            
+                            // Add fields based on asset type
+                            assetType.fields.forEach(field => {
+                                const fieldDiv = document.createElement('div');
+                                fieldDiv.className = 'form-group';
+                                
+                                const label = document.createElement('label');
+                                label.textContent = field.name;
+                                label.htmlFor = `asset-${field.name}`;
+                                
+                                let input;
+                                switch (field.type) {
+                                    case 'text':
+                                        input = document.createElement('input');
+                                        input.type = 'text';
+                                        break;
+                                    case 'number':
+                                        input = document.createElement('input');
+                                        input.type = 'number';
+                                        break;
+                                    case 'date':
+                                        input = document.createElement('input');
+                                        input.type = 'date';
+                                        break;
+                                    case 'time':
+                                        input = document.createElement('input');
+                                        input.type = 'time';
+                                        break;
+                                    case 'url':
+                                        input = document.createElement('input');
+                                        input.type = 'url';
+                                        break;
+                                    case 'file':
+                                        input = document.createElement('input');
+                                        input.type = 'file';
+                                        break;
+                                    default:
+                                        input = document.createElement('input');
+                                        input.type = 'text';
+                                }
+                                
+                                input.id = `asset-${field.name}`;
+                                input.name = field.name;
+                                input.className = 'asset-field-input';
+                                
+                                fieldDiv.appendChild(label);
+                                fieldDiv.appendChild(input);
+                                fieldsContainer.appendChild(fieldDiv);
+                            });
+                            
+                            // Show the modal
+                            assetModal.style.display = 'block';
+                            
+                            // Add event listeners for the modal buttons
+                            const cancelBtn = assetModal.querySelector('.cancel-btn');
+                            const saveBtn = assetModal.querySelector('.save-btn');
+                            const assetForm = document.getElementById('asset-form');
+                            
+                            if (cancelBtn) {
+                                cancelBtn.onclick = () => {
+                                    assetModal.style.display = 'none';
+                                    assetForm.reset();
+                                };
+                            }
+                            
+                            if (saveBtn) {
+                                saveBtn.onclick = async (e) => {
+                                    e.preventDefault();
+                                    
+                                    // Collect form data
+                                    const formData = new FormData(assetForm);
+                                    const fields = {};
+                                    
+                                    assetType.fields.forEach(field => {
+                                        const value = formData.get(field.name);
+                                        if (value) {
+                                            fields[field.name] = value;
+                                        }
+                                    });
+                                    
+                                    // Create the asset
+                                    const asset = {
+                                        type_id: selectedAssetTypeId,
+                                        fields: fields
+                                    };
+                                    
+                                    try {
+                                        await apiService.addAsset(asset);
+                                        assetModal.style.display = 'none';
+                                        assetForm.reset();
+                                        // Refresh the table to show the new asset
+                                        await renderAssetTypeSpreadsheetPage(selectedAssetTypeId);
+                                    } catch (error) {
+                                        console.error('Error saving asset:', error);
+                                        showNotification('Failed to save asset', 'error');
+                                    }
+                                };
+                            }
+                        }
+                    }
+                });
+            }
+
             entriesContainer.querySelectorAll('.sortable').forEach(header => {
                 header.addEventListener('click', () => {
                     const field = header.dataset.field;

@@ -566,6 +566,18 @@ app.delete('/api/asset-types/:id', authenticateToken, (req, res) => {
   );
 });
 
+// Get a single asset type by ID
+app.get('/api/asset-types/:id', authenticateToken, (req, res) => {
+  const typeId = req.params.id;
+  db.get('SELECT * FROM asset_types WHERE id = ? AND user_id = ?', [typeId, req.user.id], (err, type) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    if (!type) return res.status(404).json({ error: 'Asset type not found' });
+    // Parse fields from string to array
+    type.fields = typeof type.fields === 'string' ? JSON.parse(type.fields) : type.fields;
+    res.json(type);
+  });
+});
+
 // Assets Routes
 app.get('/api/assets', authenticateToken, (req, res) => {
   const { type_id } = req.query;
